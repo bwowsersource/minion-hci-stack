@@ -1,0 +1,42 @@
+{
+  "name": "@bwowsersource/minion-hci-stack",
+  "version": "0.1.2",
+  "description": "Native inference stack for the minion: node-llama-cpp, cactus-needle (Needle + Whistle) and omnivoice-tts, with per-platform binaries as optional dependencies.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "exports": {
+    ".": "./src/index.ts",
+    "./pack": "./src/pack.ts",
+    "./protocol/*": "./src/protocol/*.ts"
+  },
+  "files": [
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "cactus-needle": "0.3.0",
+    "node-llama-cpp": "^3.22.1"
+  },
+  "optionalDependencies": {
+    "@bwowsersource/minion-hci-stack-darwin-arm64": "0.1.2",
+    "@bwowsersource/minion-hci-stack-linux-arm64": "0.1.2",
+    "@bwowsersource/minion-hci-stack-linux-x64": "0.1.2",
+    "@bwowsersource/minion-hci-stack-win32-x64": "0.1.2"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bwowsersource/minion-hci-stack.git"
+  }
+}

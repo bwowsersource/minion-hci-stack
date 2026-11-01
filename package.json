@@ -1,0 +1,18 @@
+{
+  "name": "minion-hci-stack-workspace",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "bun test packages/minion-hci-stack",
+    "typecheck": "tsc --noEmit -p packages/minion-hci-stack",
+    "build": "bun scripts/stage-platform-packages.ts",
+    "publish:platform": "bash scripts/publish-platform.sh",
+    "githooks:install": "git config core.hooksPath scripts/hooks"
+  },
+  "trustedDependencies": [
+    "node-llama-cpp"
+  ],
+  "packageManager": "bun@1.4.2"
+}
