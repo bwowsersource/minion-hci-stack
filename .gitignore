@@ -5,3 +5,4 @@ build
 packages/platform
 .DS_Store
 .env.local
+demo-output

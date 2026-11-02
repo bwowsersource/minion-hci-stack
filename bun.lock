@@ -7,7 +7,7 @@
     },
     "packages/minion-hci-stack": {
       "name": "@bwowsersource/minion-hci-stack",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "dependencies": {
         "cactus-needle": "0.3.0",
         "node-llama-cpp": "^3.22.1",
@@ -17,10 +17,10 @@
         "typescript": "^5.6.0",
       },
       "optionalDependencies": {
-        "@bwowsersource/minion-hci-stack-darwin-arm64": "0.1.0",
-        "@bwowsersource/minion-hci-stack-linux-arm64": "0.1.0",
-        "@bwowsersource/minion-hci-stack-linux-x64": "0.1.0",
-        "@bwowsersource/minion-hci-stack-win32-x64": "0.1.0",
+        "@bwowsersource/minion-hci-stack-darwin-arm64": "0.1.2",
+        "@bwowsersource/minion-hci-stack-linux-arm64": "0.1.2",
+        "@bwowsersource/minion-hci-stack-linux-x64": "0.1.2",
+        "@bwowsersource/minion-hci-stack-win32-x64": "0.1.2",
       },
     },
   },
@@ -31,6 +31,14 @@
     "@ai-sdk/provider": ["@ai-sdk/provider@3.0.19", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-5lWq7zSfRaU5ylDESn3sDQjgGl2AI1vjZKO/6JY3aFW70ct4zcP1kN+ZUYOuTXr28fVsYbyu2YFhddLdIgQFZQ=="],
 
     "@bwowsersource/minion-hci-stack": ["@bwowsersource/minion-hci-stack@workspace:packages/minion-hci-stack"],
+
+    "@bwowsersource/minion-hci-stack-darwin-arm64": ["@bwowsersource/minion-hci-stack-darwin-arm64@0.1.2", "https://npm.pkg.github.com/download/@bwowsersource/minion-hci-stack-darwin-arm64/0.1.2/b23449f3c91de28ff0ee73bbb5241a250c5e7c45", { "os": "darwin", "cpu": "arm64" }, "sha512-HOu1gABSlm4hNhwdaMd5M3n4cUJ3GKGgC7gEC5I9M1xKitjy9HjPjh3rHHgsCKrzLvqt3v0PaRSbD+4inaX49Q=="],
+
+    "@bwowsersource/minion-hci-stack-linux-arm64": ["@bwowsersource/minion-hci-stack-linux-arm64@0.1.2", "https://npm.pkg.github.com/download/@bwowsersource/minion-hci-stack-linux-arm64/0.1.2/901fd9f3ed0594600eaa4bdd7cffe0f933f7fa5f", { "os": "linux", "cpu": "arm64" }, "sha512-G+TKNq4POcyzJMaVkOQoEJEX8jG/dAtTIybhqyzmbzQOHsJFCYvRTdiG2XZmmBA7UBTKb9cjkpkOLdnKfPddwQ=="],
+
+    "@bwowsersource/minion-hci-stack-linux-x64": ["@bwowsersource/minion-hci-stack-linux-x64@0.1.2", "https://npm.pkg.github.com/download/@bwowsersource/minion-hci-stack-linux-x64/0.1.2/ec9b0da178e7bd22f04c87ac2b83cc0dd6eb36f4", { "os": "linux", "cpu": "x64" }, "sha512-bnEnq/N17RpXUwdq+3l/C4cqzZioZKBYa6lCgRzqKeunroG+z83YjTsX66OEREDFUIAOW7HMDmmzHtJiFZeAig=="],
+
+    "@bwowsersource/minion-hci-stack-win32-x64": ["@bwowsersource/minion-hci-stack-win32-x64@0.1.2", "https://npm.pkg.github.com/download/@bwowsersource/minion-hci-stack-win32-x64/0.1.2/810c167add7988fdc541fa7bb831f9e297b6136b", { "os": "win32", "cpu": "x64" }, "sha512-XwlCX6Sn+7xBXGm3Vqr9lnq9Hy4wX+28LcqmdqQPsqu4E2FsAmv07migB5j3Pkgi3gojtIYi6W2qqBptknJt2Q=="],
 
     "@huggingface/jinja": ["@huggingface/jinja@0.5.11", "", {}, "sha512-YzEzwM5oQf4r0vs7ifWQ+yuVR1YkAHrjERQ+a8WRsStHHp4NRBg+NesjiFc+X2AFUpRvvrIeHDS1xFy9jY/IjQ=="],
 

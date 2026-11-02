@@ -153,6 +153,11 @@ export class MinionInferenceRuntime {
     return this.longChatSessionPromise;
   }
 
+  /** Loads the model and the context `generateText` uses, so a caller can time loading apart from generating. */
+  async load(): Promise<void> {
+    await this.getChatSession();
+  }
+
   /** Warms every context up front, so the first real call doesn't pay the full load cost. */
   async warmup(): Promise<void> {
     await Promise.all([this.getDecisionContext(), this.getChatSession(), this.getLongChatSession()]);
