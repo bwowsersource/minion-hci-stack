@@ -7,7 +7,7 @@
     },
     "packages/minion-hci-stack": {
       "name": "@bwowsersource/minion-hci-stack",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "dependencies": {
         "cactus-needle": "0.3.0",
         "node-llama-cpp": "^3.22.1",
@@ -17,10 +17,10 @@
         "typescript": "^5.6.0",
       },
       "optionalDependencies": {
-        "@bwowsersource/minion-hci-stack-darwin-arm64": "0.1.0",
-        "@bwowsersource/minion-hci-stack-linux-arm64": "0.1.0",
-        "@bwowsersource/minion-hci-stack-linux-x64": "0.1.0",
-        "@bwowsersource/minion-hci-stack-win32-x64": "0.1.0",
+        "@bwowsersource/minion-hci-stack-darwin-arm64": "0.1.2",
+        "@bwowsersource/minion-hci-stack-linux-arm64": "0.1.2",
+        "@bwowsersource/minion-hci-stack-linux-x64": "0.1.2",
+        "@bwowsersource/minion-hci-stack-win32-x64": "0.1.2",
       },
     },
   },
