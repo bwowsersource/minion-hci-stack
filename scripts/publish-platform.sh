@@ -10,35 +10,30 @@
 # take part: add `<platform>-<arch>` to optionalDependencies in
 # packages/minion-hci-stack/package.json and push from that machine.
 #
-# Publishing needs NPM_PUBLISH_TOKEN (a short-lived token with write:packages);
-# it is read from the environment or from ./.env.local. .npmrc uses the generic
-# NODE_AUTH_TOKEN (the read:packages token for installs); this script overwrites
-# it with the publish token for its own run only.
+# Publishing needs a short-lived token with write:packages. It is taken from
+# NPM_PUBLISH_TOKEN if set, otherwise you are prompted to paste it (no echo).
+# .npmrc uses the generic NODE_AUTH_TOKEN (the read:packages token for
+# installs); this script overwrites it with the publish token for its own run.
 #
-# Usage: publish-platform.sh [-n|--no-publish]
+# An existing build/omnivoice is reused rather than rebuilt.
+#
+# Usage: publish-platform.sh [-n|--no-publish] [-f|--force]
 #   -n, --no-publish  build and stage (and `npm pack` into build/) only
+#   -f, --force       rebuild omnivoice-tts even if build/omnivoice exists
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 warn() { echo "[publish] $*" >&2; }
 log() { echo "[publish] $*"; }
 
-if [ ! -f "./.env.local" ]; then
-	printf '# Required for publishing: a short-lived GitHub token with write:packages\nNPM_PUBLISH_TOKEN=\n' >./.env.local
-	warn "created ./.env.local, fill in NPM_PUBLISH_TOKEN"
-fi
-
-set -a
-# shellcheck disable=SC1090
-source <(grep -v '^#' ./.env.local | grep -v '^$')
-set +a
-
 NO_PUBLISH=0
+FORCE=0
 for arg in "$@"; do
 	case "$arg" in
 	-n | --no-publish) NO_PUBLISH=1 ;;
+	-f | --force) FORCE=1 ;;
 	*)
-		warn "unknown argument: ${arg} (usage: publish-platform.sh [-n|--no-publish])"
+		warn "unknown argument: ${arg} (usage: publish-platform.sh [-n|--no-publish] [-f|--force])"
 		exit 2
 		;;
 	esac
@@ -58,8 +53,16 @@ KEY="$(bun -e "console.log(process.platform + '-' + process.arch)")"
 PLATFORM_DIR="packages/platform/${KEY}"
 
 if [ "$NO_PUBLISH" = "0" ] && [ -z "${NPM_PUBLISH_TOKEN:-}" ]; then
-	warn "NPM_PUBLISH_TOKEN is not set (env or .env.local), skipping publish"
-	exit 0
+	# stdin belongs to git when run from the pre-push hook, so ask the terminal
+	if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+		printf '[publish] paste NPM_PUBLISH_TOKEN (write:packages, input hidden): ' >/dev/tty
+		read -rs NPM_PUBLISH_TOKEN </dev/tty
+		echo >/dev/tty
+	fi
+	if [ -z "${NPM_PUBLISH_TOKEN:-}" ]; then
+		warn "no publish token given (set NPM_PUBLISH_TOKEN or run from a terminal), skipping publish"
+		exit 0
+	fi
 fi
 
 NPMRC="$PWD/.npmrc"
@@ -69,11 +72,18 @@ export NODE_AUTH_TOKEN="${NPM_PUBLISH_TOKEN:-}"
 
 published() { npm view "$1@${VERSION}" version --userconfig "$NPMRC" >/dev/null 2>&1; }
 
+STAGE_ARGS=()
+if [ "$FORCE" = "0" ] && [ -d build/omnivoice ]; then
+	log "reusing existing build/omnivoice (use --force to rebuild)"
+	STAGE_ARGS=(--no-build)
+fi
+# ${arr[@]+...} keeps an empty array safe under `set -u` on bash < 4.4
+
 if [ "$NO_PUBLISH" = "0" ] && published "${NAME}-${KEY}"; then
 	log "${NAME}-${KEY}@${VERSION} is already published, nothing to do"
 else
-	log "building omnivoice-tts for ${KEY}..."
-	if ! bun scripts/stage-platform-packages.ts; then
+	log "staging omnivoice-tts for ${KEY}..."
+	if ! bun scripts/stage-platform-packages.ts ${STAGE_ARGS[@]+"${STAGE_ARGS[@]}"}; then
 		warn "build/staging failed, skipping publish"
 		exit 0
 	fi

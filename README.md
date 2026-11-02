@@ -54,18 +54,20 @@ embedded platforms can take part. Run `bun run githooks:install` once per clone.
   fill in every platform package. `SKIP_PUBLISH_HOOK=1 git push` skips it.
 - A new platform: add `<os>-<arch>` to `optionalDependencies` in
   `packages/minion-hci-stack/package.json` before pushing from that machine.
-- Auth: `NPM_PUBLISH_TOKEN` (a short-lived token with `write:packages`) from the
-  environment or `./.env.local`; the script exports it as `NODE_AUTH_TOKEN` for
-  its run. Installing uses `NODE_AUTH_TOKEN` (`read:packages`, see `.npmrc`)
-  exported in your session.
+- Auth: the script prompts you to paste a short-lived `write:packages` token (or
+  reads `NPM_PUBLISH_TOKEN` from the environment) and exports it as
+  `NODE_AUTH_TOKEN` for its run. Installing uses `NODE_AUTH_TOKEN`
+  (`read:packages`, see `.npmrc`) exported in your session.
+- Caching: an existing `build/omnivoice` is reused; pass `--force` to rebuild.
 
 Local: `bun install && bun run build && bun run test`;
-`bun run publish:platform -- --no-publish` builds and packs without publishing.
+`bun run publish:platform -- --no-publish` builds and packs without publishing,
+`bun run publish:platform -- --force` rebuilds `omnivoice-tts` first.
 
 
 # publishing to GitHub Packages
 Publishing, per build machine:
-1. Create a GitHub token with write:packages. Put NPM_PUBLISH_TOKEN=... in the environment or in minion-hci-stack/.env.local, which is gitignored.
+1. Create a short-lived GitHub token with write:packages. The publish script prompts you to paste it (or reads NPM_PUBLISH_TOKEN from the environment).
 2. The stack needs its own GitHub remote, bwowsersource/minion-hci-stack. It has no remote yet. Pushing to main is what triggers the publish hook.
 3. Run bun run githooks:install once per clone.
 4. Run git push origin main. The pre-push hook builds omnivoice for that machine and publishes @bwowsersource/minion-hci-stack-<os>-<arch>. It also publishes the main package if that version isn't on the registry yet.

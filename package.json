@@ -8,7 +8,7 @@
     "test": "bun test packages/minion-hci-stack",
     "typecheck": "tsc --noEmit -p packages/minion-hci-stack",
     "build": "bun scripts/stage-platform-packages.ts",
-    "publish:platform": "bash scripts/publish-platform.sh",
+    "publish": "bash scripts/publish-platform.sh",
     "githooks:install": "git config core.hooksPath scripts/hooks"
   },
   "trustedDependencies": [
