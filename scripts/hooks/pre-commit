@@ -5,7 +5,7 @@
 # than in pre-push means the version is already in history when the push happens.
 #
 # Runs once per push-worthy batch: if an earlier unpushed commit already bumped
-# the version, it differs from origin/main's and this hook skips.
+# the version, it differs from origin/base's and this hook skips.
 #
 # Disable with: SKIP_VERSION_BUMP=1
 set -uo pipefail
@@ -22,8 +22,8 @@ git diff --cached --quiet -- packages/minion-hci-stack/src scripts/ && exit 0
 CURRENT_VERSION="$(bun -e "console.log(require('./$PKG').version)" 2>/dev/null)"
 [ -z "$CURRENT_VERSION" ] && exit 0
 
-if git rev-parse --verify origin/main^{commit} >/dev/null 2>&1; then
-	REMOTE_PKG_JSON="$(git show "origin/main:$PKG" 2>/dev/null || true)"
+if git rev-parse --verify origin/base^{commit} >/dev/null 2>&1; then
+	REMOTE_PKG_JSON="$(git show "origin/base:$PKG" 2>/dev/null || true)"
 	if [ -n "$REMOTE_PKG_JSON" ]; then
 		REMOTE_VERSION="$(REMOTE_PKG_JSON="$REMOTE_PKG_JSON" bun -e "console.log(JSON.parse(process.env.REMOTE_PKG_JSON).version)" 2>/dev/null)"
 		if [ -n "$REMOTE_VERSION" ] && [ "$REMOTE_VERSION" != "$CURRENT_VERSION" ]; then

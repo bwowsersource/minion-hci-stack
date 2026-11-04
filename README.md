@@ -47,7 +47,7 @@ embedded platforms can take part. Run `bun run githooks:install` once per clone.
 
 - `pre-commit` bumps the patch version (and the matching `optionalDependencies`)
   when a commit touches `packages/minion-hci-stack/src` or `scripts/`.
-- `pre-push` on `main` runs `scripts/publish-platform.sh`: it builds
+- `pre-push` on `base` runs `scripts/publish-platform.sh`: it builds
   `omnivoice-tts` for *this* host, stages `@bwowsersource/minion-hci-stack-<os>-<arch>`
   and publishes it to GitHub Packages, then publishes the main package if that
   version isn't there yet. Push the same commit from each platform's machine to
@@ -68,7 +68,7 @@ Local: `bun install && bun run build && bun run test`;
 # publishing to GitHub Packages
 Publishing, per build machine:
 1. Create a short-lived GitHub token with write:packages. The publish script prompts you to paste it (or reads NPM_PUBLISH_TOKEN from the environment).
-2. The stack needs its own GitHub remote, bwowsersource/minion-hci-stack. It has no remote yet. Pushing to main is what triggers the publish hook.
+2. The stack needs its own GitHub remote, bwowsersource/minion-hci-stack. It has no remote yet. Pushing to base is what triggers the publish hook.
 3. Run bun run githooks:install once per clone.
 4. Run git push origin main. The pre-push hook builds omnivoice for that machine and publishes @bwowsersource/minion-hci-stack-<os>-<arch>. It also publishes the main package if that version isn't on the registry yet.
 5. Repeat the push from each platform's machine, and add the platform to optionalDependencies first if it's new.

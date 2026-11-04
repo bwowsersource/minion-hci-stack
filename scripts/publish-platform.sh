@@ -4,7 +4,7 @@
 # version isn't on the registry yet (so whichever platform pushes first does it;
 # the others then add their platform package under the same version).
 #
-# Run by the pre-push hook (scripts/hooks/pre-push) on pushes to main, and by
+# Run by the pre-push hook (scripts/hooks/pre-push) on pushes to base, and by
 # `bun run publish:platform` on demand. Each machine only ever builds and
 # publishes its own platform, which is what lets bespoke or embedded hosts
 # take part: add `<platform>-<arch>` to optionalDependencies in

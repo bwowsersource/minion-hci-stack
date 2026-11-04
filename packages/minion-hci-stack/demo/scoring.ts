@@ -1,6 +1,6 @@
 // Scoring demo: Bonsai's decideChoice on a few labelled documents.
 //
-//   bun run demo:scoring <modelsPath> [outDir]
+//   bun run demo:scoring [--gpu-layers N] <modelsPath> [outDir]
 //
 // decideChoice does a single forward pass and reads the next-token probabilities of just the candidate
 // choices, so each document gets a probability per choice rather than only a generated answer. For every
@@ -13,9 +13,21 @@ import { MinionInferenceRuntime, configureStack } from "../src";
 
 const BONSAI_MODEL = "Bonsai-27B-Q1_0.gguf"; // <modelsPath>/minion/
 
-const [modelsArg, outArg] = process.argv.slice(2);
+// --gpu-layers N (or $MINION_HCI_GPU_LAYERS): layers to offload to the GPU; 0 = CPU only.
+const args = process.argv.slice(2);
+let gpuLayers: number | undefined = process.env.MINION_HCI_GPU_LAYERS ? Number(process.env.MINION_HCI_GPU_LAYERS) : undefined;
+const flag = args.indexOf("--gpu-layers");
+if (flag >= 0) {
+  gpuLayers = Number(args[flag + 1]);
+  args.splice(flag, 2);
+}
+if (gpuLayers !== undefined && !Number.isInteger(gpuLayers)) {
+  console.error("--gpu-layers needs an integer");
+  process.exit(2);
+}
+const [modelsArg, outArg] = args;
 if (!modelsArg) {
-  console.error("usage: bun run demo:scoring <modelsPath> [outDir]");
+  console.error("usage: bun run demo:scoring [--gpu-layers N] <modelsPath> [outDir]");
   process.exit(2);
 }
 const modelsDir = resolve(modelsArg);
@@ -45,7 +57,7 @@ const CASES: Case[] = [
 ];
 
 console.log(`model: ${modelPath}`);
-const bonsai = new MinionInferenceRuntime(() => modelPath);
+const bonsai = new MinionInferenceRuntime(() => modelPath, { gpuLayers });
 const loadStart = performance.now();
 await bonsai.decideChoice("warmup", INSTRUCTION, CRITERIA); // loads the model and decision context
 console.log(`loaded in ${((performance.now() - loadStart) / 1000).toFixed(2)}s\n`);

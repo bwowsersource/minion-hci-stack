@@ -99,17 +99,15 @@ export function platformPackageName(platform: string = process.platform, arch: s
 /** Best-first order of the build variants inside a platform package. */
 export const OMNIVOICE_VARIANTS = ["vulkan", "default", "cpu"] as const;
 
-function variantBinaries(dir: string, exeName: string): string[] {
-  return OMNIVOICE_VARIANTS.map((variant) => join(dir, variant, exeName)).filter(existsSync);
-}
+/** A source checkout that built the native pieces itself keeps them in <repo>/build/. */
+const SOURCE_BUILD_DIR = join(import.meta.dir, "..", "..", "..", "build");
 
 /**
- * Paths of the `omnivoice-tts` binaries shipped for this machine, best first;
- * empty when the platform package isn't installed (unsupported platform, or
- * optional dependencies were skipped).
+ * This machine's platform package directory (`@bwowsersource/minion-hci-stack-<os>-<arch>`),
+ * or null when it isn't installed (unsupported platform, optional dependencies
+ * skipped, or a source checkout).
  */
-export async function bundledOmniVoiceBinaries(): Promise<string[]> {
-  const exeName = process.platform === "win32" ? "omnivoice-tts.exe" : "omnivoice-tts";
+async function platformPackageDir(): Promise<string | null> {
   const specifier = `${platformPackageName()}/package.json`;
   // The unpacked runtime first; otherwise an ordinary install, found from this
   // file or (when a host bundles this package) from the working directory.
@@ -117,57 +115,73 @@ export async function bundledOmniVoiceBinaries(): Promise<string[]> {
   for (const root of roots) {
     if (!root) continue;
     try {
-      const manifest = Bun.resolveSync(specifier, root);
-      return variantBinaries(join(dirname(manifest), "omnivoice"), exeName);
+      return dirname(Bun.resolveSync(specifier, root));
     } catch {
       /* not resolvable from here; try the next root */
     }
   }
-  // A source checkout that built omnivoice itself (scripts/build-omnivoice.ts) has the
-  // binaries in <repo>/build/omnivoice even though no platform package is installed.
-  return variantBinaries(join(import.meta.dir, "..", "..", "..", "build", "omnivoice"), exeName);
+  return null;
+}
+
+function variantBinaries(dir: string, exeName: string): string[] {
+  return OMNIVOICE_VARIANTS.map((variant) => join(dir, variant, exeName)).filter(existsSync);
+}
+
+/**
+ * Paths of the `omnivoice-tts` binaries shipped for this machine, best first;
+ * empty when neither the platform package nor a source-checkout build has them.
+ */
+export async function bundledOmniVoiceBinaries(): Promise<string[]> {
+  const exeName = process.platform === "win32" ? "omnivoice-tts.exe" : "omnivoice-tts";
+  const packageDir = await platformPackageDir();
+  return variantBinaries(join(packageDir ?? SOURCE_BUILD_DIR, "omnivoice"), exeName);
 }
 
 let llamaBuildsInstalled: Promise<void> | null = null;
+
+/** Identifies one shipped llama build, so a newer one can replace an older install of the same folder. */
+function llamaBuildStamp(folder: string): string {
+  const { size, mtimeMs } = statSync(join(folder, "Release", "llama-addon.node"));
+  return `${size}:${Math.floor(mtimeMs)}`;
+}
+
+const LLAMA_STAMP_FILE = ".minion-hci-stamp";
 
 /**
  * Copies the node-llama-cpp GPU builds shipped in this machine's platform package
  * (`llama/localBuilds/*`, for platforms where node-llama-cpp has no GPU prebuilt)
  * into node-llama-cpp's own `llama/localBuilds`, which is where it looks for
- * builds before falling back to CPU. Existing builds are left alone; a failure
- * (read-only install, no platform package) just leaves node-llama-cpp on its own.
+ * builds before falling back to CPU. A build we installed earlier is replaced
+ * when the shipped one differs; a build node-llama-cpp compiled itself is left
+ * alone. A failure (read-only install, ...) is reported and leaves node-llama-cpp
+ * on its own CPU prebuilt.
  */
 export function installBundledLlamaBuilds(): Promise<void> {
   llamaBuildsInstalled ??= (async () => {
     try {
-      const specifier = `${platformPackageName()}/package.json`;
-      const roots = [await runtimeDirReady().catch(() => null), import.meta.dir, process.cwd()];
-      let shipped: string | null = null;
-      for (const root of roots) {
-        if (!root) continue;
-        try {
-          shipped = join(dirname(Bun.resolveSync(specifier, root)), "llama", "localBuilds");
-          break;
-        } catch {
-          /* not resolvable from here; try the next root */
-        }
-      }
-      // A source checkout that built it itself has it in <repo>/build/llama.
-      if (!shipped || !existsSync(shipped)) shipped = join(import.meta.dir, "..", "..", "..", "build", "llama", "localBuilds");
+      const packageDir = await platformPackageDir();
+      const shipped = join(packageDir ?? SOURCE_BUILD_DIR, "llama", "localBuilds");
       if (!existsSync(shipped)) return;
-      const llamaDir = dirname(Bun.resolveSync("node-llama-cpp/package.json", (await runtimeDirReady().catch(() => null)) ?? import.meta.dir));
+      const runtimeDir = await runtimeDirReady().catch(() => null);
+      const llamaDir = dirname(Bun.resolveSync("node-llama-cpp/package.json", runtimeDir ?? import.meta.dir));
       const target = join(llamaDir, "llama", "localBuilds");
       mkdirSync(target, { recursive: true });
       for (const folder of readdirSync(shipped)) {
-        if (existsSync(join(target, folder, "buildDone.status"))) continue;
+        const stamp = llamaBuildStamp(join(shipped, folder));
+        const installed = join(target, folder);
+        if (existsSync(join(installed, "buildDone.status"))) {
+          const marker = join(installed, LLAMA_STAMP_FILE);
+          if (!existsSync(marker) || readFileSync(marker, "utf-8") === stamp) continue;
+        }
         const staging = join(target, `.${folder}.tmp-${process.pid}`);
         rmSync(staging, { recursive: true, force: true });
         cpSync(join(shipped, folder), staging, { recursive: true });
-        rmSync(join(target, folder), { recursive: true, force: true });
-        renameSync(staging, join(target, folder));
+        writeFileSync(join(staging, LLAMA_STAMP_FILE), stamp);
+        rmSync(installed, { recursive: true, force: true });
+        renameSync(staging, installed);
       }
-    } catch {
-      /* best effort: node-llama-cpp falls back to its CPU prebuilt */
+    } catch (error) {
+      console.warn(`[minion-hci-stack] could not install the bundled node-llama-cpp GPU build; using node-llama-cpp's own: ${error}`);
     }
   })();
   return llamaBuildsInstalled;

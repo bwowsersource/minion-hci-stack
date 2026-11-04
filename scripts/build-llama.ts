@@ -8,7 +8,9 @@
  * localBuilds/<folder> into build/llama/localBuilds/ (stage-platform-packages.ts
  * packages it; llama.ts installs it into node-llama-cpp at runtime).
  *
- * Needs the Vulkan headers, `glslc` and cmake, like the omnivoice Vulkan build.
+ * Needs the Vulkan headers, `glslc` and cmake, like the omnivoice Vulkan build;
+ * without them this fails rather than silently shipping CPU-only.
+ * MINION_HCI_ALLOW_CPU_LLAMA=1 is the explicit opt-out.
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "fs";
 import { dirname, join, resolve } from "path";
@@ -58,7 +60,15 @@ export function buildLlama(): void {
     return;
   }
   if (!hasVulkanBuildTools()) {
-    warn("Vulkan build tools (headers, glslc, cmake) not found; node-llama-cpp will run CPU-only here.");
+    if (process.env.MINION_HCI_ALLOW_CPU_LLAMA !== "1") {
+      throw new Error(
+        "Vulkan build tools (headers, glslc, cmake) not found, so this would ship a CPU-only node-llama-cpp. " +
+          "Ubuntu/Debian: sudo apt install libvulkan-dev glslc spirv-headers cmake. " +
+          "To ship CPU-only on purpose, set MINION_HCI_ALLOW_CPU_LLAMA=1.",
+      );
+    }
+    warn("Vulkan build tools not found; node-llama-cpp will run CPU-only here (MINION_HCI_ALLOW_CPU_LLAMA=1).");
+    rmSync(LLAMA_OUT_DIR, { recursive: true, force: true }); // never stage a stale build from an earlier run
     return;
   }
   const result = Bun.spawnSync(["bunx", "node-llama-cpp", "source", "download", "--gpu", "vulkan", "--noUsageExample"], {

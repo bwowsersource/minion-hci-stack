@@ -1,10 +1,10 @@
 // Demo suite: one run through every model in the stack.
 //
-//   bun run demo [--gpu-layers N] [--steps N] <modelsPath> "<text>" [outDir]
+//   bun run demo [--skip-bonsai] [--gpu-layers N] [--steps N] <modelsPath> "<text>" [outDir]
 //
 // All models are loaded first (OmniVoice, Bonsai, Whistle, Needle), then run in this order:
 //
-//   1. Bonsai (the minion GGUF, node-llama-cpp)  text      -> output.txt
+//   1. Bonsai (the minion GGUF, node-llama-cpp)  text      -> output.txt   (--skip-bonsai: the text is used as is)
 //   2. OmniVoice                                 output.txt -> output.wav
 //   3. Whistle                                   output.wav -> output.json
 //   4. Needle                                    yes/no function call: does output.json match output.txt? -> crosscheck.json
@@ -30,6 +30,9 @@ const OMNIVOICE_CODEC_MODEL = "omnivoice-tokenizer-Q8_0.gguf"; // <modelsPath>/o
 
 // --gpu-layers N (or $MINION_HCI_GPU_LAYERS): layers of Bonsai to offload to the GPU; 0 = CPU only.
 const args = process.argv.slice(2);
+// --skip-bonsai: leave the minion out; the input text is spoken as is (useful when only the audio models are of interest).
+const skipBonsai = args.includes("--skip-bonsai");
+if (skipBonsai) args.splice(args.indexOf("--skip-bonsai"), 1);
 let gpuLayers: number | undefined = process.env.MINION_HCI_GPU_LAYERS ? Number(process.env.MINION_HCI_GPU_LAYERS) : undefined;
 const flag = args.indexOf("--gpu-layers");
 if (flag >= 0) {
@@ -53,7 +56,7 @@ if (!Number.isInteger(steps) || steps < 1) {
 }
 const [modelsArg, text, outArg] = args;
 if (!modelsArg || !text?.trim()) {
-  console.error('usage: bun run demo [--gpu-layers N] [--steps N] <modelsPath> "<text>" [outDir]');
+  console.error('usage: bun run demo [--skip-bonsai] [--gpu-layers N] [--steps N] <modelsPath> "<text>" [outDir]');
   process.exit(2);
 }
 const modelsDir = resolve(modelsArg);
@@ -87,15 +90,15 @@ const total = performance.now();
 const ttsLog = () => {};
 
 // Load everything up front
-const modelPath = bonsaiPath();
-console.log(`model: ${modelPath}${gpuLayers === undefined ? "" : ` (gpu layers: ${gpuLayers})`}`);
+const modelPath = skipBonsai ? null : bonsaiPath();
+if (modelPath) console.log(`model: ${modelPath}${gpuLayers === undefined ? "" : ` (gpu layers: ${gpuLayers})`}`);
+else console.log("bonsai skipped: the input text is spoken as is");
 
 const tts = new OmniVoiceManager(ttsLog);
 await step("omnivoice load", () => tts.downloadModels());
 
-// Bonsai disabled for now
-// const bonsai = new MinionInferenceRuntime(() => modelPath, { gpuLayers });
-// await step("bonsai load", () => bonsai.load());
+const bonsai = modelPath ? new MinionInferenceRuntime(() => modelPath, { gpuLayers }) : null;
+if (bonsai) await step("bonsai load", () => bonsai.load());
 
 // No microphone in the demo: the capture backend is never used for file transcription.
 const cactus = new CactusManager(ttsLog, ttsLog, ttsLog, {
@@ -113,11 +116,13 @@ const needle = await step("needle load", async () =>
 );
 
 // 1. Bonsai
-// Kept short: it gets spoken, then transcribed by Whistle (30 s clip limit).
-// const generated = await step("bonsai inference", () => bonsai.generateText(text, { jsonMode: false, maxTokens: 96 }));
-// const outputText = generated.generatedText;
-// if (!outputText) throw new Error("Bonsai returned an empty response.");
-const outputText = text; // with Bonsai disabled, the input text is what gets spoken
+let outputText = text;
+if (bonsai) {
+  // Kept short: it gets spoken, then transcribed by Whistle (30 s clip limit).
+  const generated = await step("bonsai inference", () => bonsai.generateText(text, { jsonMode: false, maxTokens: 96 }));
+  outputText = generated.generatedText;
+  if (!outputText) throw new Error("Bonsai returned an empty response.");
+}
 await Bun.write(join(outDir, "output.txt"), `${outputText}\n`);
 console.log(outputText);
 
@@ -181,7 +186,7 @@ console.log(`match: ${verdict.match ?? "no verdict"}`);
 tts.dispose();
 await cactus.call({ op: "whistle.unload" });
 await needle.close();
-// await bonsai.dispose();
+await bonsai?.dispose();
 
 // 5. Timings
 timings.push({ step: "total", ms: performance.now() - total });
