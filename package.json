@@ -2,11 +2,13 @@
   "name": "minion-hci-stack-workspace",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "packages/platform/*"
   ],
   "scripts": {
     "test": "bun test packages/minion-hci-stack",
     "demo": "bun packages/minion-hci-stack/demo/index.ts",
+    "demo:scoring": "bun packages/minion-hci-stack/demo/scoring.ts",
     "typecheck": "tsc --noEmit -p packages/minion-hci-stack",
     "build": "bun scripts/stage-platform-packages.ts",
     "publish": "bash scripts/publish-platform.sh",

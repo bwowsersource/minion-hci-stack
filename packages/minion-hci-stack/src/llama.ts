@@ -36,6 +36,10 @@ export type GenerateTextResult = {
   generatedText: string;
 };
 
+type ContextSlot = "decision" | "chat" | "longChat";
+type BuiltContext<T> = { model: LlamaModel; value: T; dispose: () => unknown };
+type CpuFallback = { from: LlamaModel; done: Promise<void> };
+
 /**
  * Runs the bundled minion via node-llama-cpp (a native llama.cpp
  * binding) in the bun backend, replacing the old wllama/WebGPU Worker that
@@ -61,11 +65,21 @@ export type GenerateTextResult = {
 export class MinionInferenceRuntime {
   private modelPromise: Promise<LlamaModel> | null = null;
   private chatWrapperPromise: Promise<ChatWrapper> | null = null;
-  private decisionContextPromise: Promise<LlamaDecisionContext> | null = null;
-  private chatSessionPromise: Promise<LlamaChatSession> | null = null;
-  private longChatSessionPromise: Promise<LlamaChatSession> | null = null;
+  /** The lazily created contexts, each remembering the model it was built on (see `getContext`). */
+  private contexts = new Map<ContextSlot, Promise<BuiltContext<unknown>>>();
+  /** Set once a GPU context failed (e.g. the driver can't allocate the buffers); the model is then reloaded on the CPU. */
+  private cpuOnly = false;
+  /** The one CPU fallback this runtime performs: the GPU model it replaced, and the reload in progress. */
+  private fallback: CpuFallback | null = null;
 
-  constructor(private resolveModelPath: () => string | null) {}
+  /**
+   * `gpuLayers` caps how many layers node-llama-cpp offloads to the GPU (default: it decides
+   * from the free VRAM); 0 keeps the model on the CPU.
+   */
+  constructor(
+    private resolveModelPath: () => string | null,
+    private options: { gpuLayers?: number | "auto" | "max" } = {},
+  ) {}
 
   /** Loads the node-llama-cpp module + native binding, without a model file. */
   async ensureEngine(): Promise<void> {
@@ -81,8 +95,8 @@ export class MinionInferenceRuntime {
           throw new Error("The minion hasn't been downloaded yet — download it from Settings → Models.");
         }
         const { getLlama } = await llamaLib();
-        const llama = await getLlama();
-        return llama.loadModel({ modelPath });
+        const llama = await getLlama(this.cpuOnly ? { gpu: false } : undefined);
+        return llama.loadModel({ modelPath, gpuLayers: this.options.gpuLayers });
       })().catch((error) => {
         this.modelPromise = null; // allow retrying after a failed load instead of caching the rejection forever
         throw error;
@@ -106,51 +120,99 @@ export class MinionInferenceRuntime {
     return this.chatWrapperPromise;
   }
 
-  private getDecisionContext(): Promise<LlamaDecisionContext> {
-    if (!this.decisionContextPromise) {
-      this.decisionContextPromise = Promise.all([this.getModel(), this.getChatWrapper()])
-        .then(([model, chatWrapper]) => model.createDecisionContext({ contextSize: { max: 2048 }, chatWrapper }))
-        .catch((error) => {
-          this.decisionContextPromise = null;
-          throw error;
-        });
+  /**
+   * Runs `create` against the loaded model. If it fails while the model is on the
+   * GPU (typically a Vulkan allocation failure on a small or shared-memory GPU),
+   * the model is reloaded CPU-only and `create` is retried once. The fallback
+   * happens at most once and is shared: creators that fail concurrently, or that
+   * were still using the replaced model, wait for the same reload and retry on it.
+   */
+  private async withModel<T>(create: (model: LlamaModel) => Promise<T>): Promise<T> {
+    const model = await this.getModel();
+    try {
+      return await create(model);
+    } catch (error) {
+      const fallback = this.fallback ?? (model.gpuLayers ? this.fallBackToCpu(model, error) : null);
+      if (!fallback || fallback.from !== model) throw error; // already on the CPU: nothing left to try
+      await fallback.done;
+      return create(await this.getModel());
     }
-    return this.decisionContextPromise;
+  }
+
+  private fallBackToCpu(model: LlamaModel, error: unknown): CpuFallback {
+    console.warn(`[minion-hci-stack] GPU context failed (${error instanceof Error ? error.message : error}); retrying on the CPU.`);
+    this.cpuOnly = true;
+    this.modelPromise = null;
+    this.fallback = { from: model, done: model.dispose().catch(() => {}) };
+    return this.fallback;
+  }
+
+  /**
+   * The context for `slot`, created on first use. A context built on the GPU model
+   * before the CPU fallback replaced it is dead, so it is recreated on the current
+   * model instead of being handed out.
+   */
+  private async getContext<T>(
+    slot: ContextSlot,
+    create: (model: LlamaModel, chatWrapper: ChatWrapper) => Promise<T>,
+    dispose: (value: T) => unknown,
+  ): Promise<T> {
+    let pending = this.contexts.get(slot) as Promise<BuiltContext<T>> | undefined;
+    if (!pending) {
+      const created: Promise<BuiltContext<T>> = (async () => {
+        const chatWrapper = await this.getChatWrapper();
+        return this.withModel(async (model) => {
+          const value = await create(model, chatWrapper);
+          return { model, value, dispose: () => dispose(value) };
+        });
+      })();
+      created.catch(() => {
+        if (this.contexts.get(slot) === created) this.contexts.delete(slot); // allow a retry instead of caching the failure
+      });
+      this.contexts.set(slot, created);
+      pending = created;
+    }
+    const built = await pending;
+    if (built.model.disposed) {
+      if (this.contexts.get(slot) === pending) this.contexts.delete(slot);
+      return this.getContext(slot, create, dispose);
+    }
+    return built.value;
+  }
+
+  private getDecisionContext(): Promise<LlamaDecisionContext> {
+    return this.getContext(
+      "decision",
+      (model, chatWrapper) => model.createDecisionContext({ contextSize: { max: 2048 }, chatWrapper }),
+      (context) => context.dispose(),
+    );
   }
 
   private getChatSession(): Promise<LlamaChatSession> {
-    if (!this.chatSessionPromise) {
-      this.chatSessionPromise = Promise.all([this.getModel(), this.getChatWrapper()])
-        .then(async ([model, chatWrapper]) => {
-          const { LlamaChatSession } = await llamaLib();
-          const context = await model.createContext({ contextSize: { max: 2048 } });
-          return new LlamaChatSession({ contextSequence: context.getSequence(), chatWrapper });
-        })
-        .catch((error) => {
-          this.chatSessionPromise = null;
-          throw error;
-        });
-    }
-    return this.chatSessionPromise;
+    return this.getContext(
+      "chat",
+      async (model, chatWrapper) => {
+        const { LlamaChatSession } = await llamaLib();
+        const context = await model.createContext({ contextSize: { max: 2048 } });
+        return new LlamaChatSession({ contextSequence: context.getSequence(), chatWrapper });
+      },
+      (session) => session.dispose({ disposeSequence: true }),
+    );
   }
 
   private getLongChatSession(): Promise<LlamaChatSession> {
-    if (!this.longChatSessionPromise) {
-      this.longChatSessionPromise = Promise.all([this.getModel(), this.getChatWrapper()])
-        .then(async ([model, chatWrapper]) => {
-          const { LlamaChatSession } = await llamaLib();
-          // "auto": as much context as the model was trained on and
-          // available VRAM allow — the closest thing to "unlimited" node-
-          // llama-cpp offers, since there's no literal unbounded option.
-          const context = await model.createContext({ contextSize: "auto" });
-          return new LlamaChatSession({ contextSequence: context.getSequence(), chatWrapper });
-        })
-        .catch((error) => {
-          this.longChatSessionPromise = null;
-          throw error;
-        });
-    }
-    return this.longChatSessionPromise;
+    return this.getContext(
+      "longChat",
+      async (model, chatWrapper) => {
+        const { LlamaChatSession } = await llamaLib();
+        // "auto": as much context as the model was trained on and
+        // available VRAM allow — the closest thing to "unlimited" node-
+        // llama-cpp offers, since there's no literal unbounded option.
+        const context = await model.createContext({ contextSize: "auto" });
+        return new LlamaChatSession({ contextSequence: context.getSequence(), chatWrapper });
+      },
+      (session) => session.dispose({ disposeSequence: true }),
+    );
   }
 
   /** Loads the model and the context `generateText` uses, so a caller can time loading apart from generating. */
@@ -246,17 +308,12 @@ export class MinionInferenceRuntime {
   }
 
   async dispose(): Promise<void> {
-    const [decisionContext, chatSession, longChatSession] = await Promise.all([
-      this.decisionContextPromise?.catch(() => null) ?? null,
-      this.chatSessionPromise?.catch(() => null) ?? null,
-      this.longChatSessionPromise?.catch(() => null) ?? null,
-    ]);
-    await decisionContext?.dispose();
-    chatSession?.dispose({ disposeSequence: true });
-    longChatSession?.dispose({ disposeSequence: true });
-    this.decisionContextPromise = null;
-    this.chatSessionPromise = null;
-    this.longChatSessionPromise = null;
+    const built = await Promise.all([...this.contexts.values()].map((pending) => pending.catch(() => null)));
+    this.contexts.clear();
+    for (const context of built) {
+      // contexts of a model the CPU fallback replaced are already gone with it
+      if (context && !context.model.disposed) await context.dispose();
+    }
     this.chatWrapperPromise = null;
     this.modelPromise = null;
   }

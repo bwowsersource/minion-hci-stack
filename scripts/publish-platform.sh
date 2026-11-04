@@ -4,7 +4,7 @@
 # version isn't on the registry yet (so whichever platform pushes first does it;
 # the others then add their platform package under the same version).
 #
-# Run by the pre-push hook (scripts/hooks/pre-push) on pushes to main, and by
+# Run by the pre-push hook (scripts/hooks/pre-push) on pushes to base, and by
 # `bun run publish:platform` on demand. Each machine only ever builds and
 # publishes its own platform, which is what lets bespoke or embedded hosts
 # take part: add `<platform>-<arch>` to optionalDependencies in
@@ -15,11 +15,16 @@
 # .npmrc uses the generic NODE_AUTH_TOKEN (the read:packages token for
 # installs); this script overwrites it with the publish token for its own run.
 #
-# An existing build/omnivoice is reused rather than rebuilt.
+# Where node-llama-cpp has no GPU prebuilt for this host (e.g. linux-arm64) a Vulkan
+# build of it is compiled too and shipped in the platform package (build-llama.ts).
+# An existing build/omnivoice (and build/llama) is reused rather than rebuilt.
 #
-# Usage: publish-platform.sh [-n|--no-publish] [-f|--force]
+# Usage: publish-platform.sh [-n|--no-publish] [-f|--force] [-v|--verbose]
 #   -n, --no-publish  build and stage (and `npm pack` into build/) only
-#   -f, --force       rebuild omnivoice-tts even if build/omnivoice exists
+#   -f, --force       rebuild omnivoice-tts and node-llama-cpp even if build/ has them
+#   -v, --verbose     run npm publish with --loglevel verbose
+# While a publish runs, a heartbeat line is printed every 15s (npm itself shows
+# no upload progress), followed by npm's exit code and the elapsed time.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,12 +33,14 @@ log() { echo "[publish] $*"; }
 
 NO_PUBLISH=0
 FORCE=0
+NPM_FLAGS=()
 for arg in "$@"; do
 	case "$arg" in
 	-n | --no-publish) NO_PUBLISH=1 ;;
 	-f | --force) FORCE=1 ;;
+	-v | --verbose) NPM_FLAGS=(--loglevel verbose) ;;
 	*)
-		warn "unknown argument: ${arg} (usage: publish-platform.sh [-n|--no-publish] [-f|--force])"
+		warn "unknown argument: ${arg} (usage: publish-platform.sh [-n|--no-publish] [-f|--force] [-v|--verbose])"
 		exit 2
 		;;
 	esac
@@ -70,6 +77,19 @@ NPMRC="$PWD/.npmrc"
 # publishing overrides it with the publish token.
 export NODE_AUTH_TOKEN="${NPM_PUBLISH_TOKEN:-}"
 
+# npm prints nothing while it uploads, so report liveness and the outcome
+npm_publish() {
+	local dir="$1" label="$2" start="$SECONDS" hb rc
+	(while sleep 15; do log "${label}: still publishing ($((SECONDS - start))s elapsed)"; done) &
+	hb=$!
+	(cd "$dir" && npm publish --userconfig "$NPMRC" ${NPM_FLAGS[@]+"${NPM_FLAGS[@]}"})
+	rc=$?
+	kill "$hb" 2>/dev/null
+	wait "$hb" 2>/dev/null
+	log "${label}: npm publish exited ${rc} after $((SECONDS - start))s"
+	return "$rc"
+}
+
 published() { npm view "$1@${VERSION}" version --userconfig "$NPMRC" >/dev/null 2>&1; }
 
 STAGE_ARGS=()
@@ -93,7 +113,7 @@ else
 		exit 0
 	fi
 	log "publishing ${NAME}-${KEY}@${VERSION}"
-	(cd "$PLATFORM_DIR" && npm publish --userconfig "$NPMRC") || {
+	npm_publish "$PLATFORM_DIR" "${NAME}-${KEY}" || {
 		warn "failed to publish ${NAME}-${KEY}"
 		exit 0
 	}
@@ -103,7 +123,7 @@ if published "$NAME"; then
 	log "${NAME}@${VERSION} is already published"
 else
 	log "publishing ${NAME}@${VERSION}"
-	(cd "$MAIN_DIR" && npm publish --userconfig "$NPMRC") || warn "failed to publish ${NAME}"
+	npm_publish "$MAIN_DIR" "$NAME" || warn "failed to publish ${NAME}"
 fi
 
 exit 0

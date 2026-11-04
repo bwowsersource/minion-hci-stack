@@ -1,6 +1,6 @@
 {
   "name": "@bwowsersource/minion-hci-stack",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Native inference stack for the minion: node-llama-cpp, cactus-needle (Needle + Whistle) and omnivoice-tts, with per-platform binaries as optional dependencies.",
   "type": "module",
   "license": "UNLICENSED",
@@ -22,10 +22,10 @@
     "node-llama-cpp": "^3.22.1"
   },
   "optionalDependencies": {
-    "@bwowsersource/minion-hci-stack-darwin-arm64": "0.1.2",
-    "@bwowsersource/minion-hci-stack-linux-arm64": "0.1.2",
-    "@bwowsersource/minion-hci-stack-linux-x64": "0.1.2",
-    "@bwowsersource/minion-hci-stack-win32-x64": "0.1.2"
+    "@bwowsersource/minion-hci-stack-darwin-arm64": "0.1.3",
+    "@bwowsersource/minion-hci-stack-linux-arm64": "0.1.3",
+    "@bwowsersource/minion-hci-stack-linux-x64": "0.1.3",
+    "@bwowsersource/minion-hci-stack-win32-x64": "0.1.3"
   },
   "devDependencies": {
     "@types/bun": "latest",
