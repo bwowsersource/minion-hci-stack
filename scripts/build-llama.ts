@@ -71,12 +71,22 @@ export function buildLlama(): void {
     rmSync(LLAMA_OUT_DIR, { recursive: true, force: true }); // never stage a stale build from an earlier run
     return;
   }
-  const result = Bun.spawnSync(["bunx", "node-llama-cpp", "source", "download", "--gpu", "vulkan", "--noUsageExample"], {
-    cwd: PACKAGE_DIR,
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  if (result.exitCode !== 0) throw new Error(`node-llama-cpp source download exited with ${result.exitCode}`);
+  // A plain local build compiles for the build machine's own CPU (GGML_NATIVE=ON), so the published
+  // package would crash with illegal instructions on an older SoC. node-llama-cpp's CI mode, which
+  // produces its own prebuilts, targets a baseline instead and ships the CPU kernels as runtime-selected
+  // variants (GGML_CPU_ALL_VARIANTS); it is a hidden option that only takes effect when CI is set.
+  // The build folder keeps its plain name (e.g. linux-arm64-vulkan), which is what getLlama looks for.
+  const run = (...argv: string[]) => {
+    const result = Bun.spawnSync(["bunx", "node-llama-cpp", "source", ...argv, "--gpu", "vulkan", "--noUsageExample"], {
+      cwd: PACKAGE_DIR,
+      env: { ...process.env, CI: "true" },
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    if (result.exitCode !== 0) throw new Error(`node-llama-cpp source ${argv[0]} exited with ${result.exitCode}`);
+  };
+  run("download", "--skipBuild");
+  run("build", "--ciMode", "--noCustomCmakeBuildOptionsInBinaryFolderName");
 
   const builds = join(nodeLlamaCppDir(), "llama", "localBuilds");
   const folders = existsSync(builds) ? readdirSync(builds).filter((name) => name.includes("vulkan")) : [];
