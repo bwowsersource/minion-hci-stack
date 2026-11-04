@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { stackPaths } from "./config";
 
@@ -81,6 +81,7 @@ export function loadRuntimeModule<T>(name: string): Promise<T> {
   if (!pending) {
     pending = (async () => {
       const dir = await runtimeDirReady();
+      if (name === "node-llama-cpp") await installBundledLlamaBuilds();
       if (dir) return (await import(Bun.resolveSync(name, dir))) as T;
       return (await import(name)) as T;
     })();
@@ -98,6 +99,10 @@ export function platformPackageName(platform: string = process.platform, arch: s
 /** Best-first order of the build variants inside a platform package. */
 export const OMNIVOICE_VARIANTS = ["vulkan", "default", "cpu"] as const;
 
+function variantBinaries(dir: string, exeName: string): string[] {
+  return OMNIVOICE_VARIANTS.map((variant) => join(dir, variant, exeName)).filter(existsSync);
+}
+
 /**
  * Paths of the `omnivoice-tts` binaries shipped for this machine, best first;
  * empty when the platform package isn't installed (unsupported platform, or
@@ -113,10 +118,57 @@ export async function bundledOmniVoiceBinaries(): Promise<string[]> {
     if (!root) continue;
     try {
       const manifest = Bun.resolveSync(specifier, root);
-      return OMNIVOICE_VARIANTS.map((variant) => join(dirname(manifest), "omnivoice", variant, exeName)).filter(existsSync);
+      return variantBinaries(join(dirname(manifest), "omnivoice"), exeName);
     } catch {
       /* not resolvable from here; try the next root */
     }
   }
-  return [];
+  // A source checkout that built omnivoice itself (scripts/build-omnivoice.ts) has the
+  // binaries in <repo>/build/omnivoice even though no platform package is installed.
+  return variantBinaries(join(import.meta.dir, "..", "..", "..", "build", "omnivoice"), exeName);
+}
+
+let llamaBuildsInstalled: Promise<void> | null = null;
+
+/**
+ * Copies the node-llama-cpp GPU builds shipped in this machine's platform package
+ * (`llama/localBuilds/*`, for platforms where node-llama-cpp has no GPU prebuilt)
+ * into node-llama-cpp's own `llama/localBuilds`, which is where it looks for
+ * builds before falling back to CPU. Existing builds are left alone; a failure
+ * (read-only install, no platform package) just leaves node-llama-cpp on its own.
+ */
+export function installBundledLlamaBuilds(): Promise<void> {
+  llamaBuildsInstalled ??= (async () => {
+    try {
+      const specifier = `${platformPackageName()}/package.json`;
+      const roots = [await runtimeDirReady().catch(() => null), import.meta.dir, process.cwd()];
+      let shipped: string | null = null;
+      for (const root of roots) {
+        if (!root) continue;
+        try {
+          shipped = join(dirname(Bun.resolveSync(specifier, root)), "llama", "localBuilds");
+          break;
+        } catch {
+          /* not resolvable from here; try the next root */
+        }
+      }
+      // A source checkout that built it itself has it in <repo>/build/llama.
+      if (!shipped || !existsSync(shipped)) shipped = join(import.meta.dir, "..", "..", "..", "build", "llama", "localBuilds");
+      if (!existsSync(shipped)) return;
+      const llamaDir = dirname(Bun.resolveSync("node-llama-cpp/package.json", (await runtimeDirReady().catch(() => null)) ?? import.meta.dir));
+      const target = join(llamaDir, "llama", "localBuilds");
+      mkdirSync(target, { recursive: true });
+      for (const folder of readdirSync(shipped)) {
+        if (existsSync(join(target, folder, "buildDone.status"))) continue;
+        const staging = join(target, `.${folder}.tmp-${process.pid}`);
+        rmSync(staging, { recursive: true, force: true });
+        cpSync(join(shipped, folder), staging, { recursive: true });
+        rmSync(join(target, folder), { recursive: true, force: true });
+        renameSync(staging, join(target, folder));
+      }
+    } catch {
+      /* best effort: node-llama-cpp falls back to its CPU prebuilt */
+    }
+  })();
+  return llamaBuildsInstalled;
 }

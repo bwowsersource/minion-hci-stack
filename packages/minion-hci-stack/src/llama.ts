@@ -64,8 +64,17 @@ export class MinionInferenceRuntime {
   private decisionContextPromise: Promise<LlamaDecisionContext> | null = null;
   private chatSessionPromise: Promise<LlamaChatSession> | null = null;
   private longChatSessionPromise: Promise<LlamaChatSession> | null = null;
+  /** Set once a GPU context failed (e.g. the driver can't allocate the buffers); the model is then reloaded on the CPU. */
+  private cpuOnly = false;
 
-  constructor(private resolveModelPath: () => string | null) {}
+  /**
+   * `gpuLayers` caps how many layers node-llama-cpp offloads to the GPU (default: it decides
+   * from the free VRAM); 0 keeps the model on the CPU.
+   */
+  constructor(
+    private resolveModelPath: () => string | null,
+    private options: { gpuLayers?: number | "auto" | "max" } = {},
+  ) {}
 
   /** Loads the node-llama-cpp module + native binding, without a model file. */
   async ensureEngine(): Promise<void> {
@@ -81,8 +90,8 @@ export class MinionInferenceRuntime {
           throw new Error("The minion hasn't been downloaded yet — download it from Settings → Models.");
         }
         const { getLlama } = await llamaLib();
-        const llama = await getLlama();
-        return llama.loadModel({ modelPath });
+        const llama = await getLlama(this.cpuOnly ? { gpu: false } : undefined);
+        return llama.loadModel({ modelPath, gpuLayers: this.options.gpuLayers });
       })().catch((error) => {
         this.modelPromise = null; // allow retrying after a failed load instead of caching the rejection forever
         throw error;
@@ -106,10 +115,31 @@ export class MinionInferenceRuntime {
     return this.chatWrapperPromise;
   }
 
+  /**
+   * Runs `create` against the loaded model. If it fails while the model is on the
+   * GPU (typically a Vulkan allocation failure on a small or shared-memory GPU),
+   * the model is reloaded CPU-only and `create` is retried once.
+   */
+  private async withModel<T>(create: (model: LlamaModel) => Promise<T>): Promise<T> {
+    const model = await this.getModel();
+    try {
+      return await create(model);
+    } catch (error) {
+      // another context creator already fell back and replaced the model
+      if (this.cpuOnly && model.disposed) return create(await this.getModel());
+      if (this.cpuOnly || !model.gpuLayers) throw error;
+      console.warn(`[minion-hci-stack] GPU context failed (${error instanceof Error ? error.message : error}); retrying on the CPU.`);
+      this.cpuOnly = true;
+      this.modelPromise = null;
+      await model.dispose().catch(() => {});
+      return create(await this.getModel());
+    }
+  }
+
   private getDecisionContext(): Promise<LlamaDecisionContext> {
     if (!this.decisionContextPromise) {
       this.decisionContextPromise = Promise.all([this.getModel(), this.getChatWrapper()])
-        .then(([model, chatWrapper]) => model.createDecisionContext({ contextSize: { max: 2048 }, chatWrapper }))
+        .then(([, chatWrapper]) => this.withModel((model) => model.createDecisionContext({ contextSize: { max: 2048 }, chatWrapper })))
         .catch((error) => {
           this.decisionContextPromise = null;
           throw error;
@@ -121,9 +151,9 @@ export class MinionInferenceRuntime {
   private getChatSession(): Promise<LlamaChatSession> {
     if (!this.chatSessionPromise) {
       this.chatSessionPromise = Promise.all([this.getModel(), this.getChatWrapper()])
-        .then(async ([model, chatWrapper]) => {
+        .then(async ([, chatWrapper]) => {
           const { LlamaChatSession } = await llamaLib();
-          const context = await model.createContext({ contextSize: { max: 2048 } });
+          const context = await this.withModel((model) => model.createContext({ contextSize: { max: 2048 } }));
           return new LlamaChatSession({ contextSequence: context.getSequence(), chatWrapper });
         })
         .catch((error) => {
@@ -137,12 +167,12 @@ export class MinionInferenceRuntime {
   private getLongChatSession(): Promise<LlamaChatSession> {
     if (!this.longChatSessionPromise) {
       this.longChatSessionPromise = Promise.all([this.getModel(), this.getChatWrapper()])
-        .then(async ([model, chatWrapper]) => {
+        .then(async ([, chatWrapper]) => {
           const { LlamaChatSession } = await llamaLib();
           // "auto": as much context as the model was trained on and
           // available VRAM allow — the closest thing to "unlimited" node-
           // llama-cpp offers, since there's no literal unbounded option.
-          const context = await model.createContext({ contextSize: "auto" });
+          const context = await this.withModel((model) => model.createContext({ contextSize: "auto" }));
           return new LlamaChatSession({ contextSequence: context.getSequence(), chatWrapper });
         })
         .catch((error) => {
