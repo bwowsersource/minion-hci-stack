@@ -36,7 +36,10 @@ export type GenerateTextResult = {
   generatedText: string;
 };
 
-type ContextSlot = "decision" | "chat" | "longChat";
+/** Messages the Vulkan backend raises when the driver itself fails (as opposed to a bad request). */
+const GPU_DRIVER_ERROR = /vk::|vulkan|ErrorOutOfDeviceMemory|ErrorDeviceLost|device lost/i;
+
+type ContextSlot ="decision" | "chat" | "longChat";
 type BuiltContext<T> = { model: LlamaModel; value: T; dispose: () => unknown };
 type CpuFallback = { from: LlamaModel; done: Promise<void> };
 
@@ -71,6 +74,10 @@ export class MinionInferenceRuntime {
   private cpuOnly = false;
   /** The one CPU fallback this runtime performs: the GPU model it replaced, and the reload in progress. */
   private fallback: CpuFallback | null = null;
+  /** When the model load in progress began, so a failed GPU attempt can be timed apart from the CPU retry. */
+  private loadStartedAt = 0;
+  /** GPU attempts that failed before the CPU fallback, with the time each took. Empty when the first load worked. */
+  readonly failedAttempts: { device: "gpu"; ms: number; error: string }[] = [];
 
   /**
    * `gpuLayers` caps how many layers node-llama-cpp offloads to the GPU (default: it decides
@@ -89,6 +96,7 @@ export class MinionInferenceRuntime {
 
   private getModel(): Promise<LlamaModel> {
     if (!this.modelPromise) {
+      this.loadStartedAt = performance.now();
       this.modelPromise = (async () => {
         const modelPath = this.resolveModelPath();
         if (!modelPath) {
@@ -127,11 +135,15 @@ export class MinionInferenceRuntime {
    * happens at most once and is shared: creators that fail concurrently, or that
    * were still using the replaced model, wait for the same reload and retry on it.
    */
-  private async withModel<T>(create: (model: LlamaModel) => Promise<T>): Promise<T> {
+  private async withModel<T>(
+    create: (model: LlamaModel) => Promise<T>,
+    fallBackOn: (error: unknown) => boolean = () => true,
+  ): Promise<T> {
     const model = await this.getModel();
     try {
       return await create(model);
     } catch (error) {
+      if (!fallBackOn(error)) throw error;
       const fallback = this.fallback ?? (model.gpuLayers ? this.fallBackToCpu(model, error) : null);
       if (!fallback || fallback.from !== model) throw error; // already on the CPU: nothing left to try
       await fallback.done;
@@ -140,7 +152,9 @@ export class MinionInferenceRuntime {
   }
 
   private fallBackToCpu(model: LlamaModel, error: unknown): CpuFallback {
-    console.warn(`[minion-hci-stack] GPU context failed (${error instanceof Error ? error.message : error}); retrying on the CPU.`);
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[minion-hci-stack] GPU context failed (${reason}); retrying on the CPU.`);
+    this.failedAttempts.push({ device: "gpu", ms: performance.now() - this.loadStartedAt, error: reason });
     this.cpuOnly = true;
     this.modelPromise = null;
     this.fallback = { from: model, done: model.dispose().catch(() => {}) };
@@ -225,10 +239,24 @@ export class MinionInferenceRuntime {
     await Promise.all([this.getDecisionContext(), this.getChatSession(), this.getLongChatSession()]);
   }
 
+  /**
+   * Runs a generation, retrying it once on the CPU if the GPU driver fails mid-run. Loading a
+   * model and creating its contexts can succeed on a GPU whose driver then fails on the first
+   * real graph (Mali panvk: vk::CommandBuffer::end ErrorOutOfDeviceMemory / device lost), so
+   * the context-creation fallback alone isn't enough. Only driver errors trigger it, so a
+   * bad prompt or an abort isn't mistaken for a GPU fault. `run` fetches its own context, so
+   * the retry gets one built on the CPU model.
+   */
+  private generate<T>(run: () => Promise<T>): Promise<T> {
+    return this.withModel(run, (error) => GPU_DRIVER_ERROR.test(error instanceof Error ? error.message : String(error)));
+  }
+
   async decideChoice(document: string, instruction: string, criteria: Record<string, string>): Promise<DecideChoiceResult> {
-    const decisionContext = await this.getDecisionContext();
-    const result = await decisionContext.decideWithMeta(document, {
-      choice: { type: "choice", instruction, criteria },
+    const result = await this.generate(async () => {
+      const decisionContext = await this.getDecisionContext();
+      return decisionContext.decideWithMeta(document, {
+        choice: { type: "choice", instruction, criteria },
+      });
     });
     const answer = result.answers.choice;
     return {
@@ -293,8 +321,7 @@ export class MinionInferenceRuntime {
     options: { jsonMode: boolean; maxTokens?: number; temperature?: number },
     onUpdate?: (partialText: string) => void,
   ): Promise<GenerateTextResult> {
-    const session = await this.getChatSession();
-    return this.runPrompt(session, prompt, options, onUpdate);
+    return this.generate(async () => this.runPrompt(await this.getChatSession(), prompt, options, onUpdate));
   }
 
   /** Backs runChat — same one-shot prompting as generateText, just against the long-context session. */
@@ -303,8 +330,7 @@ export class MinionInferenceRuntime {
     options: { jsonMode: boolean; maxTokens?: number; temperature?: number },
     onUpdate?: (partialText: string) => void,
   ): Promise<GenerateTextResult> {
-    const session = await this.getLongChatSession();
-    return this.runPrompt(session, prompt, options, onUpdate);
+    return this.generate(async () => this.runPrompt(await this.getLongChatSession(), prompt, options, onUpdate));
   }
 
   async dispose(): Promise<void> {

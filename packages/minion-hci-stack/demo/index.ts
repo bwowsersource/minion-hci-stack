@@ -98,7 +98,16 @@ const tts = new OmniVoiceManager(ttsLog);
 await step("omnivoice load", () => tts.downloadModels());
 
 const bonsai = modelPath ? new MinionInferenceRuntime(() => modelPath, { gpuLayers }) : null;
-if (bonsai) await step("bonsai load", () => bonsai.load());
+if (bonsai) {
+  await step("bonsai load", () => bonsai.load());
+  // A failed GPU attempt is timed apart from the CPU retry; with no failure the single row stays as is.
+  if (bonsai.failedAttempts.length) {
+    const row = timings.findIndex((t) => t.step === "bonsai load");
+    const failed = bonsai.failedAttempts.map((a) => ({ step: `bonsai load (${a.device}, failed)`, ms: a.ms }));
+    const retryMs = timings[row]!.ms - failed.reduce((sum, a) => sum + a.ms, 0);
+    timings.splice(row, 1, ...failed, { step: "bonsai load (cpu)", ms: retryMs });
+  }
+}
 
 // No microphone in the demo: the capture backend is never used for file transcription.
 const cactus = new CactusManager(ttsLog, ttsLog, ttsLog, {

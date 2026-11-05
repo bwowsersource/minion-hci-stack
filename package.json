@@ -9,6 +9,7 @@
     "test": "bun test packages/minion-hci-stack",
     "demo": "bun packages/minion-hci-stack/demo/index.ts",
     "demo:scoring": "bun packages/minion-hci-stack/demo/scoring.ts",
+    "prepare:orangepi5pro": "bash scripts/prepare-orangepi5pro.sh",
     "typecheck": "tsc --noEmit -p packages/minion-hci-stack",
     "build": "bun scripts/stage-platform-packages.ts",
     "publish": "bash scripts/publish-platform.sh",
