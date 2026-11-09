@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import { AsyncQueue } from "./asyncQueue";
+import { describe, test } from "node:test";
+import { expect } from "../../test/expect.ts";
+import { AsyncQueue } from "./asyncQueue.ts";
 
 describe("AsyncQueue", () => {
   test("delivers queued and later items, then ends on close", async () => {

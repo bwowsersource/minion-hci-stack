@@ -6,3 +6,5 @@ packages/platform
 .DS_Store
 .env.local
 demo-output
+dist
+*.tsbuildinfo

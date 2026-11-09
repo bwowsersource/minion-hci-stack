@@ -22,6 +22,21 @@ configureStack({ assetsDir: "/path/to/data" }); // before first use
 
 Types shared with a UI (no native imports) live under `@bwowsersource/minion-hci-stack/protocol/{cactus,omnivoice,mic}`.
 
+## Runtime
+
+Node.js **>= 22.18** only. The package is authored as TypeScript with explicit
+`.ts` import specifiers and runs directly on Node's built-in type stripping — no
+Bun, no loader, no build step for development. `tsc` compiles `dist/` (the `build`
+script, run by `prepublishOnly`) with the specifiers rewritten to `.js`; the
+published `exports` point at `dist/`, so consumers install plain ESM JavaScript.
+
+The code sticks to `node:*` APIs. The tests use Node's built-in `node:test` runner
+(`node --test`) with a small `expect` shim over `node:assert/strict`, and the
+`scripts/` build tooling runs on Node too.
+
+The demos import the package by name, so they need `dist/` built: `npm run demo`
+and `npm run demo:scoring` build it first, then run the demo on Node.
+
 ## Where downloads go
 
 `configureStack` takes `assetsDir` (or `$MINION_HCI_ASSETS_DIR`, else `~/.minion-hci-stack`); the rest default to subfolders of it and can each be overridden:
@@ -43,7 +58,7 @@ at runtime set `runtimeArchive`/`runtimeDir` and the stack unpacks it once.
 ## Releasing
 
 Publishing is driven by git hooks on each build machine, not CI, so bespoke or
-embedded platforms can take part. Run `bun run githooks:install` once per clone.
+embedded platforms can take part. Run `npm run githooks:install` once per clone.
 
 - `pre-commit` bumps the patch version (and the matching `optionalDependencies`)
   when a commit touches `packages/minion-hci-stack/src` or `scripts/`.
@@ -60,17 +75,6 @@ embedded platforms can take part. Run `bun run githooks:install` once per clone.
   (`read:packages`, see `.npmrc`) exported in your session.
 - Caching: an existing `build/omnivoice` is reused; pass `--force` to rebuild.
 
-Local: `bun install && bun run build && bun run test`;
-`bun run publish:platform -- --no-publish` builds and packs without publishing,
-`bun run publish:platform -- --force` rebuilds `omnivoice-tts` first.
-
-
-# publishing to GitHub Packages
-Publishing, per build machine:
-1. Create a short-lived GitHub token with write:packages. The publish script prompts you to paste it (or reads NPM_PUBLISH_TOKEN from the environment).
-2. The stack needs its own GitHub remote, bwowsersource/minion-hci-stack. It has no remote yet. Pushing to base is what triggers the publish hook.
-3. Run bun run githooks:install once per clone.
-4. Run git push origin main. The pre-push hook builds omnivoice for that machine and publishes @bwowsersource/minion-hci-stack-<os>-<arch>. It also publishes the main package if that version isn't on the registry yet.
-5. Repeat the push from each platform's machine, and add the platform to optionalDependencies first if it's new.
-
-You can also run bun run publish:platform by hand, or bun run publish:platform -- --no-publish to build and pack only.
+Local: `npm install && npm run build:package && npm test`;
+`npm run publish -- --no-publish` builds and packs without publishing,
+`npm run publish -- --force` rebuilds `omnivoice-tts` first.

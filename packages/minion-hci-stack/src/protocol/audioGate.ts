@@ -29,10 +29,13 @@ export class StreamingVoiceGate {
   private prerollCount = 0;
   private opened = false;
 
-  constructor(
-    private readonly sampleRate: number,
-    private readonly options: { prerollSeconds?: number; speaking?: () => boolean } = {},
-  ) {}
+  private readonly sampleRate: number;
+  private readonly options: { prerollSeconds?: number; speaking?: () => boolean };
+
+  constructor(sampleRate: number, options: { prerollSeconds?: number; speaking?: () => boolean } = {}) {
+    this.sampleRate = sampleRate;
+    this.options = options;
+  }
 
   /** Blocks to feed to the model now (the released pre-roll plus `samples`). */
   push(samples: Float32Array): Float32Array[] {

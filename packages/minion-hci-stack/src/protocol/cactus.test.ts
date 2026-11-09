@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
-import { base64ToFloat32, float32ToBase64, joinTranscript } from "./cactus";
+import { test } from "node:test";
+import { expect } from "../../test/expect.ts";
+import { base64ToFloat32, float32ToBase64, joinTranscript } from "./cactus.ts";
 
 test("float32 <-> base64 round-trips exactly, including large buffers", () => {
   const small = new Float32Array([0, 0.5, -0.25, 1, -1, 1e-6]);

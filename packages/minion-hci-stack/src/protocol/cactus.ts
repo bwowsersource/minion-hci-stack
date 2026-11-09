@@ -4,7 +4,7 @@
 // ("Could not load worker") and the system webview has no getUserMedia. The
 // webview is just UI; only decoded audio *files* travel over RPC, as PCM.
 
-import type { EndpointSnapshot } from "./endpointer";
+import type { EndpointSnapshot } from "./endpointer.ts";
 
 export type CactusLanguage = "en" | "de" | "fr" | "es" | "it" | "nl" | "pl";
 

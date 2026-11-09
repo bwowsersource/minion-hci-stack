@@ -5,7 +5,7 @@
 # the others then add their platform package under the same version).
 #
 # Run by the pre-push hook (scripts/hooks/pre-push) on pushes to base, and by
-# `bun run publish:platform` on demand. Each machine only ever builds and
+# `npm run publish:platform` on demand. Each machine only ever builds and
 # publishes its own platform, which is what lets bespoke or embedded hosts
 # take part: add `<platform>-<arch>` to optionalDependencies in
 # packages/minion-hci-stack/package.json and push from that machine.
@@ -46,7 +46,7 @@ for arg in "$@"; do
 	esac
 done
 
-for tool in bun npm; do
+for tool in node npm; do
 	command -v "$tool" >/dev/null 2>&1 || {
 		warn "${tool} not found on PATH, skipping"
 		exit 0
@@ -54,9 +54,9 @@ for tool in bun npm; do
 done
 
 MAIN_DIR=packages/minion-hci-stack
-NAME="$(bun -e "console.log(require('./$MAIN_DIR/package.json').name)")"
-VERSION="$(bun -e "console.log(require('./$MAIN_DIR/package.json').version)")"
-KEY="$(bun -e "console.log(process.platform + '-' + process.arch)")"
+NAME="$(node -e "console.log(require('./$MAIN_DIR/package.json').name)")"
+VERSION="$(node -e "console.log(require('./$MAIN_DIR/package.json').version)")"
+KEY="$(node -e "console.log(process.platform + '-' + process.arch)")"
 PLATFORM_DIR="packages/platform/${KEY}"
 
 if [ "$NO_PUBLISH" = "0" ] && [ -z "${NPM_PUBLISH_TOKEN:-}" ]; then
@@ -103,7 +103,7 @@ if [ "$NO_PUBLISH" = "0" ] && published "${NAME}-${KEY}"; then
 	log "${NAME}-${KEY}@${VERSION} is already published, nothing to do"
 else
 	log "staging omnivoice-tts for ${KEY}..."
-	if ! bun scripts/stage-platform-packages.ts ${STAGE_ARGS[@]+"${STAGE_ARGS[@]}"}; then
+	if ! node scripts/stage-platform-packages.ts ${STAGE_ARGS[@]+"${STAGE_ARGS[@]}"}; then
 		warn "build/staging failed, skipping publish"
 		exit 0
 	fi
@@ -122,6 +122,11 @@ fi
 if published "$NAME"; then
 	log "${NAME}@${VERSION} is already published"
 else
+	log "building ${NAME} (dist/ for the Node entry points)"
+	if ! (cd "$MAIN_DIR" && npm run build); then
+		warn "failed to build ${NAME} from ${MAIN_DIR}; skipping publish"
+		exit 0
+	fi
 	log "publishing ${NAME}@${VERSION}"
 	npm_publish "$MAIN_DIR" "$NAME" || warn "failed to publish ${NAME}"
 fi

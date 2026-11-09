@@ -1,6 +1,7 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import type { Needle, Whistle } from "cactus-needle";
-import { loadRuntimeModule } from "./runtime";
-import { cactusCacheDir } from "./config";
+import { loadRuntimeModule } from "./runtime.ts";
+import { cactusCacheDir } from "./config.ts";
 import type {
   CactusCallRequest,
   CactusCallResponse,
@@ -8,13 +9,13 @@ import type {
   CactusProgressMessage,
   CactusSpeechSettings,
   CactusStreamMessage,
-} from "./protocol/cactus";
-import { base64ToFloat32, joinTranscript } from "./protocol/cactus";
-import { AsyncQueue } from "./protocol/asyncQueue";
-import { gateBackground, StreamingVoiceGate } from "./protocol/audioGate";
-import { SpeechEndpointer } from "./protocol/endpointer";
-import { MIC_SAMPLE_RATE } from "./protocol/mic";
-import type { MicCapture, Recorder, RecordingHandle } from "./protocol/mic";
+} from "./protocol/cactus.ts";
+import { base64ToFloat32, joinTranscript } from "./protocol/cactus.ts";
+import { AsyncQueue } from "./protocol/asyncQueue.ts";
+import { gateBackground, StreamingVoiceGate } from "./protocol/audioGate.ts";
+import { SpeechEndpointer } from "./protocol/endpointer.ts";
+import { MIC_SAMPLE_RATE } from "./protocol/mic.ts";
+import type { MicCapture, Recorder, RecordingHandle } from "./protocol/mic.ts";
 
 // Backs the "Cactus" example tab. Needle (tool calling / extraction /
 // embeddings) and Whistle (speech-to-text) each get one lazily-created
@@ -164,13 +165,23 @@ export class CactusManager {
   /** The clip `whistle.embed` runs on: the last recording or transcribed file. */
   private lastClip: Clip | null = null;
 
+  private readonly sendProgress: (message: CactusProgressMessage) => void;
+  private readonly sendStream: (message: CactusStreamMessage) => void;
+  private readonly sendMic: (message: CactusMicMessage) => void;
+  /** The microphone backend; it stays in the host app because it needs the host's ffmpeg setup. */
+  private readonly mic: MicCapture;
+
   constructor(
-    private readonly sendProgress: (message: CactusProgressMessage) => void,
-    private readonly sendStream: (message: CactusStreamMessage) => void,
-    private readonly sendMic: (message: CactusMicMessage) => void,
-    /** The microphone backend; it stays in the host app because it needs the host's ffmpeg setup. */
-    private readonly mic: MicCapture,
-  ) {}
+    sendProgress: (message: CactusProgressMessage) => void,
+    sendStream: (message: CactusStreamMessage) => void,
+    sendMic: (message: CactusMicMessage) => void,
+    mic: MicCapture,
+  ) {
+    this.sendProgress = sendProgress;
+    this.sendStream = sendStream;
+    this.sendMic = sendMic;
+    this.mic = mic;
+  }
 
   /**
    * Ensures the Weights for one Cactus model are cached on disk. Idempotent:
@@ -599,7 +610,7 @@ export class CactusManager {
       try {
         this.lastRecorderExit = null;
         for (const delay of RECORDER_SPAWN_DELAYS_MS) {
-          if (delay) await Bun.sleep(delay);
+          if (delay) await sleep(delay);
           const handle = await this.probeRecorder(found.recorder);
           if (handle) {
             this.recorder = { handle, name: found.recorder.name };
@@ -639,7 +650,7 @@ export class CactusManager {
     );
     ref.handle = handle;
     const deadline = Date.now() + RECORDER_FIRST_FRAME_MS;
-    while (frames === 0 && !exited && Date.now() < deadline) await Bun.sleep(50);
+    while (frames === 0 && !exited && Date.now() < deadline) await sleep(50);
     if (frames > 0 && !exited) return handle;
     await handle.stop();
     return null;

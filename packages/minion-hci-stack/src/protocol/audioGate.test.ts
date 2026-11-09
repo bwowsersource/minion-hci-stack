@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
-import { gateBackground, StreamingVoiceGate } from "./audioGate";
+import { test } from "node:test";
+import { expect } from "../../test/expect.ts";
+import { gateBackground, StreamingVoiceGate } from "./audioGate.ts";
 
 const RATE = 16_000;
 

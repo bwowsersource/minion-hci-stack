@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, rmSync, unlinkSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
-import { TtsDiskCache } from "./ttsCache";
+import { afterEach, describe, test } from "node:test";
+import { mkdtempSync, readdirSync, rmSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect } from "../test/expect.ts";
+import { TtsDiskCache } from "./ttsCache.ts";
 
 const tmpDirs: string[] = [];
 function tempDir(): string {

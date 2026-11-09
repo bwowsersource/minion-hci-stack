@@ -1,13 +1,15 @@
-import { join } from "path";
-import type { MicCapture } from "../src/protocol/mic";
+import { spawn } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { MicCapture } from "../src/protocol/mic.ts";
 
 /** A MicCapture whose recorder is test/fakeMic.ts: noise, then speech, then noise (s16le 16 kHz mono). */
 export function fakeMicCapture(): MicCapture {
-  const recorder = { name: "fake-mic", argv: [process.execPath, join(import.meta.dir, "fakeMic.ts")] };
+  const recorder = { name: "fake-mic", argv: [process.execPath, join(dirname(fileURLToPath(import.meta.url)), "fakeMic.ts")] };
   return {
     findRecorder: () => ({ ok: true, recorder }),
     startRecording(rec, onSamples, onExit) {
-      const proc = Bun.spawn(rec.argv, { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+      const proc = spawn(rec.argv[0]!, rec.argv.slice(1), { stdio: ["ignore", "pipe", "ignore"] });
       let stopping = false;
       const done = (async () => {
         let carry: number | null = null;

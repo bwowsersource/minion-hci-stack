@@ -1,15 +1,16 @@
 // Scoring demo: Bonsai's decideChoice on a few labelled documents.
 //
-//   bun run demo:scoring [--gpu-layers N] <modelsPath> [outDir]
+//   npm run demo:scoring [--gpu-layers N] <modelsPath> [outDir]
 //
 // decideChoice does a single forward pass and reads the next-token probabilities of just the candidate
 // choices, so each document gets a probability per choice rather than only a generated answer. For every
 // case this prints those probabilities and whether the top choice matches the expected one, then the
 // accuracy, mean confidence and per-case timing. Results are written to <outDir>/scoring.json.
 
-import { existsSync, mkdirSync } from "fs";
-import { join, resolve } from "path";
-import { MinionInferenceRuntime, configureStack } from "../src";
+import { existsSync, mkdirSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { MinionInferenceRuntime, configureStack } from "@bwowsersource/minion-hci-stack";
 
 const BONSAI_MODEL = "Bonsai-27B-Q1_0.gguf"; // <modelsPath>/minion/
 
@@ -27,7 +28,7 @@ if (gpuLayers !== undefined && !Number.isInteger(gpuLayers)) {
 }
 const [modelsArg, outArg] = args;
 if (!modelsArg) {
-  console.error("usage: bun run demo:scoring [--gpu-layers N] <modelsPath> [outDir]");
+  console.error("usage: npm run demo:scoring [--gpu-layers N] <modelsPath> [outDir]");
   process.exit(2);
 }
 const modelsDir = resolve(modelsArg);
@@ -96,7 +97,7 @@ const summary = {
   meanConfidence: results.reduce((sum, r) => sum + r.confidence, 0) / results.length,
   meanMs: results.reduce((sum, r) => sum + r.ms, 0) / results.length,
 };
-await Bun.write(join(outDir, "scoring.json"), `${JSON.stringify({ instruction: INSTRUCTION, criteria: CRITERIA, summary, results }, null, 2)}\n`);
+await writeFile(join(outDir, "scoring.json"), `${JSON.stringify({ instruction: INSTRUCTION, criteria: CRITERIA, summary, results }, null, 2)}\n`);
 console.log(
   `accuracy ${correct}/${results.length} (${(summary.accuracy * 100).toFixed(0)}%), mean confidence ${summary.meanConfidence.toFixed(3)}, ` +
     `mean ${(summary.meanMs / 1000).toFixed(2)}s per case`,

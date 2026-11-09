@@ -19,13 +19,13 @@ PKG=packages/minion-hci-stack/package.json
 git diff --cached --quiet -- "$PKG" || exit 0
 git diff --cached --quiet -- packages/minion-hci-stack/src scripts/ && exit 0
 
-CURRENT_VERSION="$(bun -e "console.log(require('./$PKG').version)" 2>/dev/null)"
+CURRENT_VERSION="$(node -e "console.log(require('./$PKG').version)" 2>/dev/null)"
 [ -z "$CURRENT_VERSION" ] && exit 0
 
 if git rev-parse --verify origin/base^{commit} >/dev/null 2>&1; then
 	REMOTE_PKG_JSON="$(git show "origin/base:$PKG" 2>/dev/null || true)"
 	if [ -n "$REMOTE_PKG_JSON" ]; then
-		REMOTE_VERSION="$(REMOTE_PKG_JSON="$REMOTE_PKG_JSON" bun -e "console.log(JSON.parse(process.env.REMOTE_PKG_JSON).version)" 2>/dev/null)"
+		REMOTE_VERSION="$(REMOTE_PKG_JSON="$REMOTE_PKG_JSON" node -e "console.log(JSON.parse(process.env.REMOTE_PKG_JSON).version)" 2>/dev/null)"
 		if [ -n "$REMOTE_VERSION" ] && [ "$REMOTE_VERSION" != "$CURRENT_VERSION" ]; then
 			exit 0
 		fi
@@ -35,7 +35,7 @@ fi
 IFS='.' read -r MAJOR MINOR PATCH <<<"$CURRENT_VERSION"
 NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
 
-NEW_VERSION="$NEW_VERSION" PKG="$PKG" bun -e "
+NEW_VERSION="$NEW_VERSION" PKG="$PKG" node -e "
 const fs = require('fs');
 const pkg = JSON.parse(fs.readFileSync(process.env.PKG, 'utf8'));
 pkg.version = process.env.NEW_VERSION;

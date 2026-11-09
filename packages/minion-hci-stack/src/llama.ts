@@ -1,5 +1,5 @@
 import type { ChatWrapper, LlamaChatSession, LlamaDecisionContext, LlamaModel } from "node-llama-cpp";
-import { loadRuntimeModule } from "./runtime";
+import { loadRuntimeModule } from "./runtime.ts";
 
 // node-llama-cpp is never bundled and is loaded via
 // runtime.ts, which unpacks it from the packaged build. It is imported on
@@ -72,14 +72,18 @@ export class MinionInferenceRuntime {
   /** The one CPU fallback this runtime performs: the GPU model it replaced, and the reload in progress. */
   private fallback: CpuFallback | null = null;
 
+  private readonly resolveModelPath: () => string | null;
+
   /**
    * `gpuLayers` caps how many layers node-llama-cpp offloads to the GPU (default: it decides
    * from the free VRAM); 0 keeps the model on the CPU.
    */
-  constructor(
-    private resolveModelPath: () => string | null,
-    private options: { gpuLayers?: number | "auto" | "max" } = {},
-  ) {}
+  private readonly options: { gpuLayers?: number | "auto" | "max" };
+
+  constructor(resolveModelPath: () => string | null, options: { gpuLayers?: number | "auto" | "max" } = {}) {
+    this.resolveModelPath = resolveModelPath;
+    this.options = options;
+  }
 
   /** Loads the node-llama-cpp module + native binding, without a model file. */
   async ensureEngine(): Promise<void> {

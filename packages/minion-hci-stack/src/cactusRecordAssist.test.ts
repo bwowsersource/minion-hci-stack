@@ -1,7 +1,9 @@
-import { afterEach, expect, test } from "bun:test";
-import type { CactusMicMessage } from "./protocol/cactus";
-import { CactusManager } from "./cactus";
-import { fakeMicCapture } from "../test/fakeMicCapture";
+import { afterEach, test } from "node:test";
+import { expect } from "../test/expect.ts";
+import { setTimeout as sleep } from "node:timers/promises";
+import type { CactusMicMessage } from "./protocol/cactus.ts";
+import { CactusManager } from "./cactus.ts";
+import { fakeMicCapture } from "../test/fakeMicCapture.ts";
 
 
 let manager: CactusManager | null = null;
@@ -12,7 +14,7 @@ afterEach(async () => {
   manager = null;
 });
 
-test("assisted recording reports an endpoint after the speaker stops, and cancel stops the recorder", async () => {
+test("assisted recording reports an endpoint after the speaker stops, and cancel stops the recorder", { timeout: 15_000 }, async () => {
   const messages: CactusMicMessage[] = [];
   manager = new CactusManager(() => {}, () => {}, (m) => messages.push(m), fakeMicCapture());
 
@@ -23,7 +25,7 @@ test("assisted recording reports an endpoint after the speaker stops, and cancel
   expect(started.ok).toBe(true);
 
   const deadline = Date.now() + 8000;
-  while (!messages.some((m) => m.kind === "endpoint") && Date.now() < deadline) await Bun.sleep(50);
+  while (!messages.some((m) => m.kind === "endpoint") && Date.now() < deadline) await sleep(50);
 
   expect(messages.filter((m) => m.kind === "level").length).toBeGreaterThan(5);
   expect(messages.some((m) => m.kind === "endpoint")).toBe(true);
@@ -34,4 +36,4 @@ test("assisted recording reports an endpoint after the speaker stops, and cancel
   // A second start works, so the first recorder really was released.
   const again = await manager.call({ op: "whistle.recordStart" });
   expect(again.ok).toBe(true);
-}, 15_000);
+});

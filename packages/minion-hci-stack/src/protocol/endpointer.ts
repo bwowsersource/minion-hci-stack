@@ -52,7 +52,11 @@ export class SpeechEndpointer {
   private silentFor = 0;
   private done = false;
 
-  constructor(private readonly options: EndpointOptions) {}
+  private readonly options: EndpointOptions;
+
+  constructor(options: EndpointOptions) {
+    this.options = options;
+  }
 
   /** True once the user has started talking. */
   get speaking(): boolean {

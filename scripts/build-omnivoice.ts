@@ -16,9 +16,11 @@
  * `glslc`; without them this fails rather than silently shipping CPU-only.
  * MINION_HCI_ALLOW_CPU_OMNIVOICE=1 is the explicit opt-out.
  */
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import { spawnSync } from "node:child_process";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { availableParallelism, tmpdir } from "node:os";
+import { join } from "node:path";
+import { whichSync } from "../packages/minion-hci-stack/src/which.ts";
 
 export const REPO = "https://github.com/ServeurpersoCom/omnivoice.cpp.git";
 const platform = process.platform;
@@ -33,8 +35,8 @@ function warn(message: string): void {
 }
 
 function run(argv: string[], cwd?: string): void {
-  const result = Bun.spawnSync(argv, { cwd, stdout: "inherit", stderr: "inherit" });
-  if (result.exitCode !== 0) throw new Error(`\`${argv.join(" ")}\` exited with ${result.exitCode}`);
+  const result = spawnSync(argv[0]!, argv.slice(1), { cwd, stdio: "inherit" });
+  if (result.status !== 0) throw new Error(`\`${argv.join(" ")}\` exited with ${result.status}`);
 }
 
 /**
@@ -97,7 +99,7 @@ function buildVariant(src: string, variant: Variant, outDir: string): void {
     console.log(`[build-omnivoice] ${variant}: configuring${flags.length ? ` (${flags.join(" ")})` : ""}`);
     try {
       run(["cmake", "-S", src, "-B", build, "-DCMAKE_BUILD_TYPE=Release", ...rpathFlags, ...flags]);
-      run(["cmake", "--build", build, "--config", "Release", "-j", String(navigator.hardwareConcurrency || 4)]);
+      run(["cmake", "--build", build, "--config", "Release", "-j", String(availableParallelism())]);
       break;
     } catch (err) {
       if (i === sets.length - 1) throw err;
@@ -121,16 +123,16 @@ function buildVariant(src: string, variant: Variant, outDir: string): void {
 function hasVulkanBuildTools(): boolean {
   if (isWindows) {
     const sdk = process.env.VULKAN_SDK;
-    return Boolean(sdk) && (Boolean(Bun.which("glslc")) || existsSync(join(sdk!, "Bin", "glslc.exe")));
+    return Boolean(sdk) && (Boolean(whichSync("glslc")) || existsSync(join(sdk!, "Bin", "glslc.exe")));
   }
-  const hasPkg = (name: string) => Bun.spawnSync(["pkg-config", "--exists", name]).exitCode === 0;
+  const hasPkg = (name: string) => spawnSync("pkg-config", ["--exists", name]).status === 0;
   const spirvHeaders = hasPkg("SPIRV-Headers") || existsSync("/usr/include/spirv/unified1/spirv.hpp");
-  return hasPkg("vulkan") && spirvHeaders && Boolean(Bun.which("glslc"));
+  return hasPkg("vulkan") && spirvHeaders && Boolean(whichSync("glslc"));
 }
 
 export function buildOmniVoice(): void {
   for (const tool of ["git", "cmake"]) {
-    if (!Bun.which(tool)) throw new Error(`${tool} not found; it is needed to build omnivoice-tts.`);
+    if (!whichSync(tool)) throw new Error(`${tool} not found; it is needed to build omnivoice-tts.`);
   }
   const variants: Variant[] = platform === "darwin" ? ["default"] : ["vulkan", "cpu"];
   if (variants.includes("vulkan") && !hasVulkanBuildTools()) {

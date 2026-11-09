@@ -1,6 +1,7 @@
-import { expect, test } from "bun:test";
-import { SpeechEndpointer } from "./endpointer";
-import type { EndpointEvent } from "./endpointer";
+import { test } from "node:test";
+import { expect } from "../../test/expect.ts";
+import { SpeechEndpointer } from "./endpointer.ts";
+import type { EndpointEvent } from "./endpointer.ts";
 
 /** Feeds `level` for `seconds` in 100 ms chunks; returns the first event and the time it fired. */
 function feed(ep: SpeechEndpointer, level: number, seconds: number, clock: { t: number }): { event: EndpointEvent; at: number } | null {

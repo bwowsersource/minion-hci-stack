@@ -1,21 +1,25 @@
 {
   "name": "minion-hci-stack-workspace",
   "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
   "workspaces": [
     "packages/*",
     "packages/platform/*"
   ],
   "scripts": {
-    "test": "bun test packages/minion-hci-stack",
-    "demo": "bun packages/minion-hci-stack/demo/index.ts",
-    "demo:scoring": "bun packages/minion-hci-stack/demo/scoring.ts",
-    "typecheck": "tsc --noEmit -p packages/minion-hci-stack",
-    "build": "bun scripts/stage-platform-packages.ts",
+    "test": "npm run test --workspace @bwowsersource/minion-hci-stack",
+    "build:package": "npm run build --workspace @bwowsersource/minion-hci-stack",
+    "demo": "npm run build:package && node packages/minion-hci-stack/demo/index.ts",
+    "demo:scoring": "npm run build:package && node packages/minion-hci-stack/demo/scoring.ts",
+    "typecheck": "npm run typecheck --workspace @bwowsersource/minion-hci-stack",
+    "build": "node scripts/stage-platform-packages.ts",
     "publish": "bash scripts/publish-platform.sh",
     "githooks:install": "git config core.hooksPath scripts/hooks"
   },
-  "trustedDependencies": [
-    "node-llama-cpp"
-  ],
-  "packageManager": "bun@1.4.2"
+  "volta": {
+    "node": "24.22.2"
+  }
 }

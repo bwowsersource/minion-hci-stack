@@ -1,6 +1,8 @@
-import { existsSync, mkdirSync, renameSync, rmSync } from "fs";
-import { join } from "path";
-import { stackPaths } from "./config";
+import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { stackPaths } from "./config.ts";
 
 export type HuggingfaceModelSpec = {
   slotId: string; // stable id for the data subdir default
@@ -19,7 +21,11 @@ export type HuggingfaceModelSpec = {
 export class HuggingfaceModelRuntime {
   private abortController: AbortController | null = null;
 
-  constructor(private spec: HuggingfaceModelSpec) {}
+  private readonly spec: HuggingfaceModelSpec;
+
+  constructor(spec: HuggingfaceModelSpec) {
+    this.spec = spec;
+  }
 
   private get dir(): string {
     return join(stackPaths().modelsDir, this.spec.subdir ?? this.spec.slotId);
@@ -54,23 +60,19 @@ export class HuggingfaceModelRuntime {
       const total = Number(response.headers.get("content-length") ?? 0);
       let loaded = 0;
       let lastEmit = 0;
-      const writer = Bun.file(this.tmpPath).writer();
-      const reader = response.body.getReader();
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          writer.write(value);
-          loaded += value.byteLength;
+      const counter = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          loaded += chunk.length;
           const now = Date.now();
           if (total > 0 && now - lastEmit > 200) {
             lastEmit = now;
             onProgress(Math.min(99, Math.round((loaded / total) * 100)));
           }
-        }
-      } finally {
-        await writer.end();
-      }
+          callback(null, chunk);
+        },
+      });
+      // Streams to disk with backpressure instead of holding a whole model in memory.
+      await pipeline(Readable.fromWeb(response.body as never), counter, createWriteStream(this.tmpPath));
       rmSync(this.filePath, { force: true });
       renameSync(this.tmpPath, this.filePath);
       onProgress(100);

@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { posix } from "node:path";
-import { platformPackageName } from "./runtime";
+import { platformPackageName } from "./runtime.ts";
 
 // Forward slashes on every host: GNU tar (Git for Windows) treats `\` as an escape.
 const join = posix.join;
@@ -52,7 +52,7 @@ export function packRuntime(outFile: string, cwd: string = process.cwd()): void 
   if (!has("node-llama-cpp") || !has(PLATFORM_PREBUILD)) {
     throw new Error(
       `${PLATFORM_PREBUILD} is not installed, so the packaged app would have to build node-llama-cpp ` +
-        "from source on first use. Run `bun install` with optional dependencies before packing.",
+        "from source on first use. Run `npm install` with optional dependencies before packing.",
     );
   }
   if (!has(platformPackageName())) {

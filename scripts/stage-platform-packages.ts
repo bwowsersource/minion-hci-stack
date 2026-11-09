@@ -11,10 +11,10 @@
  * `--no-build` stages an existing build/omnivoice instead of rebuilding it (a
  * missing build/llama is still built when the host needs one).
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { join } from "path";
-import { buildLlama, LLAMA_OUT_DIR, llamaBuildNeeded } from "./build-llama";
-import { buildOmniVoice } from "./build-omnivoice";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { buildLlama, LLAMA_OUT_DIR, llamaBuildNeeded } from "./build-llama.ts";
+import { buildOmniVoice } from "./build-omnivoice.ts";
 
 const main = JSON.parse(readFileSync("packages/minion-hci-stack/package.json", "utf-8"));
 const from = join("build", "omnivoice");

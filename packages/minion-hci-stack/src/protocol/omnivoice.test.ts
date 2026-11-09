@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { test } from "node:test";
+import { expect } from "../../test/expect.ts";
 import {
   DEFAULT_VOICE_PROFILE_KEY,
   buildTtsArgs,
@@ -7,7 +8,7 @@ import {
   shouldReplaceVoiceReference,
   voiceProfileFit,
   voiceProfileKey,
-} from "./omnivoice";
+} from "./omnivoice.ts";
 
 const paths = { model: "/m/base.gguf", codec: "/m/codec.gguf", output: "/tmp/o.wav" };
 

@@ -1,6 +1,44 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
-import { stackPaths } from "./config";
+import { spawn } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { stackPaths } from "./config.ts";
+
+/** This file's directory. Bun's `import.meta.dir` has no Node equivalent before 20.11. */
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The Node equivalent of `Bun.resolveSync(specifier, fromDir)`: resolves a
+ * module as if it were imported from `fromDir`, honouring package `exports`.
+ */
+export function resolveFrom(specifier: string, fromDir: string): string {
+  const require = createRequire(pathToFileURL(join(fromDir, "__resolve__.cjs")).href);
+  return require.resolve(specifier);
+}
+
+/**
+ * The directory of the installed package `name`, resolved from `fromDir`.
+ * Node's resolver refuses `some-pkg/package.json` when the package's `exports`
+ * doesn't expose it (Bun's resolver allowed it), so resolve the entry point
+ * instead and walk up to the manifest that names the package.
+ */
+export function resolvePackageDir(name: string, fromDir: string): string {
+  let dir = dirname(resolveFrom(name, fromDir));
+  for (;;) {
+    const manifest = join(dir, "package.json");
+    if (existsSync(manifest)) {
+      try {
+        if ((JSON.parse(readFileSync(manifest, "utf8")) as { name?: string }).name === name) return dir;
+      } catch {
+        /* unreadable manifest: keep walking */
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error(`Could not find the package directory for ${name}`);
+    dir = parent;
+  }
+}
 
 /**
  * Loads the stack's native packages (node-llama-cpp, cactus-needle) and finds
@@ -48,8 +86,14 @@ async function unpackArchive(archive: string, dir: string): Promise<string> {
   const staging = `${dir}.tmp-${process.pid}`;
   rmSync(staging, { recursive: true, force: true });
   mkdirSync(staging, { recursive: true });
-  const proc = Bun.spawn(["tar", "-xf", archive, "-C", staging], { stdout: "ignore", stderr: "pipe" });
-  const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+  const proc = spawn("tar", ["-xf", archive, "-C", staging], { stdio: ["ignore", "ignore", "pipe"] });
+  let stderr = "";
+  proc.stderr!.setEncoding("utf8");
+  proc.stderr!.on("data", (chunk: string) => (stderr += chunk));
+  const code = await new Promise<number | null>((resolve, reject) => {
+    proc.once("error", reject);
+    proc.once("close", resolve);
+  });
   if (code !== 0) {
     rmSync(staging, { recursive: true, force: true });
     throw new Error(`Could not unpack ${archive} (tar exited ${code}): ${stderr.trim()}`);
@@ -82,7 +126,7 @@ export function loadRuntimeModule<T>(name: string): Promise<T> {
     pending = (async () => {
       const dir = await runtimeDirReady();
       if (name === "node-llama-cpp") await installBundledLlamaBuilds();
-      if (dir) return (await import(Bun.resolveSync(name, dir))) as T;
+      if (dir) return (await import(pathToFileURL(resolveFrom(name, dir)).href)) as T;
       return (await import(name)) as T;
     })();
     loaded.set(name, pending);
@@ -100,7 +144,7 @@ export function platformPackageName(platform: string = process.platform, arch: s
 export const OMNIVOICE_VARIANTS = ["vulkan", "default", "cpu"] as const;
 
 /** A source checkout that built the native pieces itself keeps them in <repo>/build/. */
-const SOURCE_BUILD_DIR = join(import.meta.dir, "..", "..", "..", "build");
+const SOURCE_BUILD_DIR = join(HERE, "..", "..", "..", "build");
 
 /**
  * This machine's platform package directory (`@bwowsersource/minion-hci-stack-<os>-<arch>`),
@@ -111,11 +155,11 @@ async function platformPackageDir(): Promise<string | null> {
   const specifier = `${platformPackageName()}/package.json`;
   // The unpacked runtime first; otherwise an ordinary install, found from this
   // file or (when a host bundles this package) from the working directory.
-  const roots = [await runtimeDirReady().catch(() => null), import.meta.dir, process.cwd()];
+  const roots = [await runtimeDirReady().catch(() => null), HERE, process.cwd()];
   for (const root of roots) {
     if (!root) continue;
     try {
-      return dirname(Bun.resolveSync(specifier, root));
+      return dirname(resolveFrom(specifier, root));
     } catch {
       /* not resolvable from here; try the next root */
     }
@@ -163,7 +207,7 @@ export function installBundledLlamaBuilds(): Promise<void> {
       const shipped = join(packageDir ?? SOURCE_BUILD_DIR, "llama", "localBuilds");
       if (!existsSync(shipped)) return;
       const runtimeDir = await runtimeDirReady().catch(() => null);
-      const llamaDir = dirname(Bun.resolveSync("node-llama-cpp/package.json", runtimeDir ?? import.meta.dir));
+      const llamaDir = resolvePackageDir("node-llama-cpp", runtimeDir ?? HERE);
       const target = join(llamaDir, "llama", "localBuilds");
       mkdirSync(target, { recursive: true });
       for (const folder of readdirSync(shipped)) {

@@ -1,11 +1,12 @@
-import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
-import { encodeWav16 } from "./protocol/omnivoice";
-import type { OmniVoiceRequest } from "./protocol/omnivoice";
-import { OmniVoiceManager } from "./omnivoice";
-import { configureStack } from "./config";
+import { test } from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect } from "../test/expect.ts";
+import { encodeWav16 } from "./protocol/omnivoice.ts";
+import type { OmniVoiceRequest } from "./protocol/omnivoice.ts";
+import { OmniVoiceManager } from "./omnivoice.ts";
+import { configureStack } from "./config.ts";
 
 type Internals = {
   considerVoiceProfile(key: string, tags: string, wav: Uint8Array, text: string): void;

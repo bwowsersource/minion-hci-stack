@@ -9,8 +9,8 @@
 // The index (`index.json`) is rewritten atomically after every access so the
 // last-access timestamps and the LRU order survive restarts.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 type CacheEntry = { fingerprint: string; file: string; bytes: number; lastAccess: number };
 
@@ -27,10 +27,13 @@ export class TtsDiskCache {
   private readonly entries = new Map<string, CacheEntry>();
   private loaded = false;
 
-  constructor(
-    private readonly dir: string,
-    private readonly maxEntries = 100,
-  ) {}
+  private readonly dir: string;
+  private readonly maxEntries: number;
+
+  constructor(dir: string, maxEntries = 100) {
+    this.dir = dir;
+    this.maxEntries = maxEntries;
+  }
 
   private get indexPath(): string {
     return join(this.dir, "index.json");

@@ -1,14 +1,24 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["bun"],
-    "lib": ["ESNext", "DOM"]
+    "types": ["node"],
+    "lib": ["ESNext", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "@bwowsersource/minion-hci-stack": ["./src/index.ts"],
+      "@bwowsersource/minion-hci-stack/pack": ["./src/pack.ts"],
+      "@bwowsersource/minion-hci-stack/protocol/*": ["./src/protocol/*.ts"]
+    }
   },
   "include": ["src", "test", "demo"]
 }

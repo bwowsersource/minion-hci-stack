@@ -12,8 +12,11 @@
  * without them this fails rather than silently shipping CPU-only.
  * MINION_HCI_ALLOW_CPU_LLAMA=1 is the explicit opt-out.
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "fs";
-import { dirname, join, resolve } from "path";
+import { spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { resolvePackageDir } from "../packages/minion-hci-stack/src/runtime.ts";
+import { whichSync } from "../packages/minion-hci-stack/src/which.ts";
 
 const PACKAGE_DIR = resolve("packages", "minion-hci-stack");
 export const LLAMA_OUT_DIR = join("build", "llama");
@@ -22,9 +25,9 @@ function warn(message: string): void {
   console.warn(`[build-llama] ${message}`);
 }
 
-/** node-llama-cpp's own folder (hoisting differs between bun layouts, so resolve from the package). */
+/** node-llama-cpp's own folder (hoisting differs between install layouts, so resolve from the package). */
 function nodeLlamaCppDir(): string {
-  return dirname(Bun.resolveSync("node-llama-cpp/package.json", PACKAGE_DIR));
+  return resolvePackageDir("node-llama-cpp", PACKAGE_DIR);
 }
 
 /** Prebuilt Vulkan packages node-llama-cpp lists, as `<os>-<arch>` keys (`linux-x64`, `win-x64`). */
@@ -39,11 +42,11 @@ function prebuiltVulkanTargets(): Set<string> {
 }
 
 function hasVulkanBuildTools(): boolean {
-  if (!Bun.which("cmake")) return false;
+  if (!whichSync("cmake")) return false;
   if (process.platform === "win32") return Boolean(process.env.VULKAN_SDK);
-  const hasPkg = (name: string) => Bun.spawnSync(["pkg-config", "--exists", name]).exitCode === 0;
+  const hasPkg = (name: string) => spawnSync("pkg-config", ["--exists", name]).status === 0;
   const spirvHeaders = hasPkg("SPIRV-Headers") || existsSync("/usr/include/spirv/unified1/spirv.hpp");
-  return hasPkg("vulkan") && spirvHeaders && Boolean(Bun.which("glslc"));
+  return hasPkg("vulkan") && spirvHeaders && Boolean(whichSync("glslc"));
 }
 
 /** True when node-llama-cpp has no GPU prebuilt for this host, so one has to be compiled. */
@@ -77,13 +80,12 @@ export function buildLlama(): void {
   // variants (GGML_CPU_ALL_VARIANTS); it is a hidden option that only takes effect when CI is set.
   // The build folder keeps its plain name (e.g. linux-arm64-vulkan), which is what getLlama looks for.
   const run = (...argv: string[]) => {
-    const result = Bun.spawnSync(["bunx", "node-llama-cpp", "source", ...argv, "--gpu", "vulkan", "--noUsageExample"], {
+    const result = spawnSync("npx", ["node-llama-cpp", "source", ...argv, "--gpu", "vulkan", "--noUsageExample"], {
       cwd: PACKAGE_DIR,
       env: { ...process.env, CI: "true" },
-      stdout: "inherit",
-      stderr: "inherit",
+      stdio: "inherit",
     });
-    if (result.exitCode !== 0) throw new Error(`node-llama-cpp source ${argv[0]} exited with ${result.exitCode}`);
+    if (result.status !== 0) throw new Error(`node-llama-cpp source ${argv[0]} exited with ${result.status}`);
   };
   run("download", "--skipBuild");
   run("build", "--ciMode", "--noCustomCmakeBuildOptionsInBinaryFolderName");

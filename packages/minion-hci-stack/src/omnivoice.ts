@@ -1,7 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
-import { base64ToFloat32 } from "./protocol/cactus";
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { base64ToFloat32 } from "./protocol/cactus.ts";
 import {
   OMNIVOICE_GGUF_REPO,
   OMNIVOICE_WEIGHTS,
@@ -13,12 +15,13 @@ import {
   shouldReplaceVoiceReference,
   voiceProfileFit,
   voiceProfileKey,
-} from "./protocol/omnivoice";
-import type { OmniVoiceProgressMessage, OmniVoiceRequest, OmniVoiceResponse } from "./protocol/omnivoice";
-import { stackPaths } from "./config";
-import { HuggingfaceModelRuntime } from "./huggingface";
-import { TtsDiskCache } from "./ttsCache";
-import { bundledOmniVoiceBinaries } from "./runtime";
+} from "./protocol/omnivoice.ts";
+import type { OmniVoiceProgressMessage, OmniVoiceRequest, OmniVoiceResponse } from "./protocol/omnivoice.ts";
+import { stackPaths } from "./config.ts";
+import { HuggingfaceModelRuntime } from "./huggingface.ts";
+import { TtsDiskCache } from "./ttsCache.ts";
+import { bundledOmniVoiceBinaries } from "./runtime.ts";
+import { whichSync } from "./which.ts";
 
 // Backs the "OmniVoice" example tab with omnivoice.cpp, a C++/GGML port of
 // k2-fsa/OmniVoice. The two GGUF weight files download into the stack's models
@@ -32,6 +35,34 @@ import { bundledOmniVoiceBinaries } from "./runtime";
 // loader, GPU error), the next one is tried.
 
 export const OMNIVOICE_COMMAND_ENV = "MINION_HCI_OMNIVOICE_COMMAND";
+
+/** Reads a child process stream to a string. */
+function readStream(stream: NodeJS.ReadableStream): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    stream.setEncoding("utf8");
+    stream.on("data", (chunk: string) => (data += chunk));
+    stream.on("end", () => resolve(data));
+    stream.on("error", reject);
+  });
+}
+
+/** The child's exit code; rejects when the binary could not be started. */
+function exitCode(proc: ChildProcess): Promise<number | null> {
+  return new Promise((resolve, reject) => {
+    proc.once("error", reject);
+    proc.once("close", resolve);
+  });
+}
+
+/** Resolves once the child has fully exited (or failed to start). */
+function waitClose(proc: ChildProcess): Promise<void> {
+  return new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
+    proc.once("close", () => resolve());
+    proc.once("error", () => resolve());
+  });
+}
 
 // How many synthesized recordings to keep cached: the most recently accessed
 // 100. The cache key is the text itself (see ttsCache.ts).
@@ -65,16 +96,17 @@ const BUILD_HINT = (dir: string) =>
       `then copy build/omnivoice-tts to ${dir} (or put it on PATH, or set ${OMNIVOICE_COMMAND_ENV}).`;
 
 export class OmniVoiceManager {
-  private current: ReturnType<typeof Bun.spawn> | null = null;
+  private current: ChildProcess | null = null;
   private cancelled = false;
   private readonly weights;
   private readonly ttsCache: TtsDiskCache;
   /** Loaded voice profiles, keyed by `voiceProfileKey`; null means "none yet". */
   private readonly voiceProfiles = new Map<string, VoiceProfileReference | null>();
 
-  constructor(
-    private readonly sendProgress: (message: OmniVoiceProgressMessage) => void,
-  ) {
+  private readonly sendProgress: (message: OmniVoiceProgressMessage) => void;
+
+  constructor(sendProgress: (message: OmniVoiceProgressMessage) => void) {
+    this.sendProgress = sendProgress;
     this.ttsCache = new TtsDiskCache(join(stackPaths().omnivoiceDir, "tts-cache"), TTS_CACHE_MAX_ENTRIES);
     this.weights = OMNIVOICE_WEIGHTS.map((w) => ({
       filename: w.filename,
@@ -97,7 +129,7 @@ export class OmniVoiceManager {
     const commands = (await bundledOmniVoiceBinaries()).map((path) => [path]);
     const local = join(this.binDir, process.platform === "win32" ? "omnivoice-tts.exe" : "omnivoice-tts");
     if (existsSync(local)) commands.push([local]);
-    const onPath = Bun.which("omnivoice-tts");
+    const onPath = whichSync("omnivoice-tts");
     if (onPath) commands.push([onPath]);
     return commands;
   }
@@ -245,8 +277,8 @@ export class OmniVoiceManager {
       if (effective.mode === "clone" && effective.refPcm && effective.refText?.trim()) {
         refWav = join(dir, "ref.wav");
         refTextPath = join(dir, "ref.txt");
-        await Bun.write(refWav, encodeWav16(base64ToFloat32(effective.refPcm.base64), effective.refPcm.sampleRate));
-        await Bun.write(refTextPath, effective.refText.trim());
+        await writeFile(refWav, encodeWav16(base64ToFloat32(effective.refPcm.base64), effective.refPcm.sampleRate));
+        await writeFile(refTextPath, effective.refText.trim());
       }
       const args = buildTtsArgs(effective, { model: base, codec, output, refWav, refTextPath });
 
@@ -259,19 +291,29 @@ export class OmniVoiceManager {
       let failure = BUILD_HINT(this.binDir);
       let succeeded = false;
       for (const [i, command] of commands.entries()) {
-        let proc: ReturnType<typeof Bun.spawn>;
+        let proc: ChildProcess;
         try {
-          proc = Bun.spawn([...command, ...args], { stdin: new Blob([effective.text.trim()]), stdout: "pipe", stderr: "pipe" });
+          proc = spawn(command[0]!, command.slice(1).concat(args), { stdio: ["pipe", "pipe", "pipe"] });
         } catch {
           continue;
         }
         this.current = proc;
-        let code: number;
-        [stdout, stderr, code] = await Promise.all([
-          new Response(proc.stdout as ReadableStream).text(),
-          new Response(proc.stderr as ReadableStream).text(),
-          proc.exited,
-        ]);
+        // Writing can raise EPIPE when the binary can't start; the exit code
+        // (or the spawn error) below is what decides whether to retry.
+        proc.stdin?.on("error", () => {});
+        proc.stdin?.end(effective.text.trim());
+        let code: number | null;
+        try {
+          [stdout, stderr, code] = await Promise.all([
+            readStream(proc.stdout!),
+            readStream(proc.stderr!),
+            exitCode(proc),
+          ]);
+        } catch (err) {
+          stdout = "";
+          stderr = err instanceof Error ? err.message : String(err);
+          code = null;
+        }
         if (code === 0) {
           succeeded = true;
           break;
@@ -289,9 +331,12 @@ export class OmniVoiceManager {
         if (/backend:/i.test(line)) console.log(`[omnivoice] ${line.trim()}`);
       }
       console.log(`[omnivoice] synthesized in ${Math.round(performance.now() - started)} ms`);
-      const wav = Bun.file(output);
-      if (!(await wav.exists())) return { ok: false, error: "omnivoice-tts finished but wrote no audio file." };
-      const wavBytes = new Uint8Array(await wav.arrayBuffer());
+      let wavBytes: Buffer;
+      try {
+        wavBytes = await readFile(output);
+      } catch {
+        return { ok: false, error: "omnivoice-tts finished but wrote no audio file." };
+      }
       this.ttsCache.set(cacheKey, fingerprint, wavBytes);
       // Grow the profile from what was just generated (a fresh design, or a
       // clone of the existing reference), so the next recording in this profile
@@ -318,11 +363,7 @@ export class OmniVoiceManager {
       // Wait for the killed process to be reaped so an immediate re-generate
       // (e.g. "Start over" replaying the welcome) doesn't race the "already
       // running" guard in generate().
-      try {
-        await proc.exited;
-      } catch {
-        // Killed processes may reject; nothing to do.
-      }
+      await waitClose(proc);
     }
   }
 

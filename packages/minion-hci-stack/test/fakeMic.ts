@@ -1,6 +1,7 @@
 export {};
 // Test stand-in for a microphone recorder: writes raw s16le 16 kHz mono PCM to
 // stdout in real time. 0.5 s of room noise, 1.5 s of "speech", then room noise.
+import { setTimeout as sleep } from "node:timers/promises";
 const RATE = 16_000;
 const CHUNK = 1600; // 100 ms
 const started = Date.now();
@@ -13,5 +14,5 @@ for (;;) {
   process.stdout.write(buf);
   sent += CHUNK;
   const wait = started + (sent / RATE) * 1000 - Date.now();
-  if (wait > 0) await Bun.sleep(wait);
+  if (wait > 0) await sleep(wait);
 }
